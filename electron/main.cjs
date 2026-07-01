@@ -54,27 +54,33 @@ ipcMain.handle('settings:set', (_e, s) => {
   return true;
 });
 
-ipcMain.handle('dialog:pickFolder', async () => {
-  const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+ipcMain.handle('dialog:pickFolder', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
-ipcMain.handle('dialog:pickFile', async (_e, filters) => {
-  const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: filters || [] });
+ipcMain.handle('dialog:pickFile', async (e, filters) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: filters || [] });
   return r.canceled ? null : r.filePaths[0];
 });
 
-// Write the track files under baseDir/<slug>. Returns the folder + fbx path.
+// Write the track files under baseDir/<slug>. Returns ok + the folder + fbx path.
 ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   const root = path.join(baseDir, slug);
   let fbxPath = null;
-  for (const f of files) {
-    const dest = path.join(root, f.path);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    const data = f.encoding === 'base64' ? Buffer.from(f.data, 'base64') : f.data;
-    fs.writeFileSync(dest, data);
-    if (f.path.toLowerCase().endsWith('.fbx')) fbxPath = dest;
+  try {
+    for (const f of files) {
+      const dest = path.join(root, f.path);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      const data = f.encoding === 'base64' ? Buffer.from(f.data, 'base64') : f.data;
+      fs.writeFileSync(dest, data);
+      if (f.path.toLowerCase().endsWith('.fbx')) fbxPath = dest;
+    }
+    return { ok: true, root, fbxPath };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err), root };
   }
-  return { root, fbxPath };
 });
 
 ipcMain.handle('kseditor:open', async (_e, { ksPath, fbxPath }) => {
@@ -90,4 +96,9 @@ ipcMain.handle('kseditor:open', async (_e, { ksPath, fbxPath }) => {
 
 ipcMain.handle('shell:openPath', async (_e, p) => {
   if (p) await shell.openPath(p);
+});
+
+ipcMain.handle('dialog:message', async (e, { type, message }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  await dialog.showMessageBox(win, { type: type || 'info', message: String(message), buttons: ['OK'] });
 });

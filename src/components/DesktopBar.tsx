@@ -31,31 +31,56 @@ export function DesktopBar({ project }: { project: TrackProject }) {
 
   const exportFolder = async () => {
     if (!desktop) return;
-    let base = s.acTracksPath;
-    if (!base) {
-      base = (await desktop.pickFolder()) ?? undefined;
-      if (!base) return;
+    try {
+      let base = s.acTracksPath;
+      if (!base) {
+        setStatus('Choose the folder to export into…');
+        base = (await desktop.pickFolder()) ?? undefined;
+        if (!base) { setStatus('Export cancelled (no folder chosen).'); return; }
+      }
+      setStatus('Writing files…');
+      const { slug, files } = buildFileMap(project);
+      const res = await desktop.writeTrack(base, slug, serializeForDesktop(files));
+      if (!res.ok) {
+        setStatus('Export failed — see dialog.');
+        await desktop.showMessage('error', `Could not write to:\n${res.root}\n\n${res.error}\n\nThat location may need admin rights (e.g. Steam in Program Files). Try exporting to Documents/Desktop, then copy the folder into assettocorsa\\content\\tracks.`);
+        return;
+      }
+      save({ ...s, acTracksPath: base, lastFbx: res.fbxPath ?? undefined, lastRoot: res.root });
+      setStatus(`✓ Exported to ${res.root}`);
+      await desktop.openPath(res.root); // show the folder so it's obvious it worked
+    } catch (err) {
+      setStatus('Export failed.');
+      await desktop.showMessage('error', 'Export failed:\n' + String(err));
     }
-    const { slug, files } = buildFileMap(project);
-    const { root, fbxPath } = await desktop.writeTrack(base, slug, serializeForDesktop(files));
-    save({ ...s, acTracksPath: base, lastFbx: fbxPath ?? undefined, lastRoot: root });
-    setStatus(`Wrote track to ${root}`);
   };
 
   const openKs = async () => {
     if (!desktop) return;
-    let ks = s.ksEditorPath;
-    if (!ks) {
-      ks = (await desktop.pickFile([{ name: 'KsEditor', extensions: ['exe'] }])) ?? undefined;
-      if (!ks) return;
-      save({ ...s, ksEditorPath: ks });
+    try {
+      let ks = s.ksEditorPath;
+      if (!ks) {
+        setStatus('Select KsEditor.exe (usually assettocorsa\\sdk\\editor)…');
+        ks = (await desktop.pickFile([{ name: 'KsEditor', extensions: ['exe'] }])) ?? undefined;
+        if (!ks) { setStatus('Cancelled (KsEditor.exe not selected).'); return; }
+        save({ ...s, ksEditorPath: ks });
+      }
+      if (!s.lastFbx) {
+        setStatus('Export first.');
+        await desktop.showMessage('warning', 'Export the track to a folder first, then Open in KsEditor.');
+        return;
+      }
+      const r = await desktop.openInKsEditor(ks, s.lastFbx);
+      if (r.ok) {
+        setStatus('✓ Launched KsEditor.');
+      } else {
+        setStatus('KsEditor failed.');
+        await desktop.showMessage('error', 'Could not launch KsEditor:\n' + (r.error || 'failed'));
+      }
+    } catch (err) {
+      setStatus('Open failed.');
+      await desktop.showMessage('error', 'Open in KsEditor failed:\n' + String(err));
     }
-    if (!s.lastFbx) {
-      setStatus('Export the track to a folder first.');
-      return;
-    }
-    const r = await desktop.openInKsEditor(ks, s.lastFbx);
-    setStatus(r.ok ? 'Opened FBX in KsEditor — assign shaders if needed, then Export KN5.' : r.error || 'Failed');
   };
 
   const changePath = async (key: 'acTracksPath' | 'ksEditorPath') => {

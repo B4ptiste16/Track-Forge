@@ -17,9 +17,10 @@ export interface DesktopApi {
     baseDir: string,
     slug: string,
     files: DesktopFile[],
-  ): Promise<{ root: string; fbxPath: string | null }>;
+  ): Promise<{ ok: boolean; root: string; fbxPath?: string | null; error?: string }>;
   openInKsEditor(ksPath: string, fbxPath: string): Promise<{ ok: boolean; error?: string }>;
   openPath(p: string): Promise<void>;
+  showMessage(type: 'info' | 'error' | 'warning', message: string): Promise<void>;
 }
 
 export const desktop: DesktopApi | undefined = (

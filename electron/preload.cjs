@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('desktop', {
   writeTrack: (baseDir, slug, files) => ipcRenderer.invoke('track:write', { baseDir, slug, files }),
   openInKsEditor: (ksPath, fbxPath) => ipcRenderer.invoke('kseditor:open', { ksPath, fbxPath }),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  showMessage: (type, message) => ipcRenderer.invoke('dialog:message', { type, message }),
 });
