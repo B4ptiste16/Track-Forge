@@ -24,6 +24,14 @@ npm run electron:dev   # runs Vite + opens the desktop window
 npm run electron:build # packages an installer into release/
 ```
 
+> **Windows + OneDrive note:** if the project lives under OneDrive-synced `Documents`,
+> `electron-builder` fails with `EPERM: rename …win-…-unpacked.tmp`. Build to a
+> non-synced folder instead:
+> ```
+> npx electron-builder --win "--config.directories.output=C:\Users\<you>\tf-release"
+> ```
+> (or move the project out of the OneDrive folder).
+
 ## Desktop app
 
 The desktop build (Electron) adds what a browser can't:
