@@ -1,7 +1,7 @@
 {
   "name": "ac-track-forge",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Design Assetto Corsa circuits and export a drivable track package.",
   "author": "B4ptiste16",
   "type": "module",

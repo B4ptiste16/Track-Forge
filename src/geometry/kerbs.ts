@@ -1,18 +1,17 @@
 import type { KerbType, CornerConfig } from '../types';
-import type { CenterlineSample, MeshData, SegmentSpan, Vec3 } from './types';
+import type { CenterlineSample, MeshData, SegmentSpan } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
 import { addQuadUp } from './meshbuilder';
 
-export const KERB_WIDTH = 1.0; // m
-const KERB_LIFT = 0.02; // small lift so kerbs read clearly and don't z-fight the road
+export const KERB_WIDTH = 1.0; // representative kerb width (m); real width varies per profile
+const KERB_LIFT = 0.01; // tiny lift so kerbs don't z-fight the road
 
 export interface KerbSample {
   left: KerbType;
   right: KerbType;
 }
 
-// For every centerline sample, decide which kerb profile (if any) sits on the
-// inside edge. Corner thirds map to entry / apex / exit.
+// For every centerline sample, decide which kerb profile (if any) sits where.
 export function computeKerbInfo(
   samples: CenterlineSample[],
   spans: SegmentSpan[],
@@ -30,10 +29,8 @@ export function computeKerbInfo(
     const entry = cfg ? cfg.entry : defaultKerb;
     const apex = cfg ? cfg.apex : defaultKerb;
     const exit = cfg ? cfg.exit : defaultKerb;
-    // Real-track kerb usage: NO kerb on the outside *through* the corner — only
-    // the apex kerb on the INSIDE during the corner, an entry kerb on the OUTSIDE
-    // in the braking zone (the straight before), and an exit kerb on the OUTSIDE
-    // in the traction zone (the straight after).
+    // entry kerb on the OUTSIDE (braking zone), apex on the INSIDE (mid-corner),
+    // exit on the OUTSIDE (traction zone). No kerb on the outside through the corner.
     const inside: 'left' | 'right' = span.dir === 'left' ? 'left' : 'right';
     const outside: 'left' | 'right' = span.dir === 'left' ? 'right' : 'left';
 
@@ -46,11 +43,8 @@ export function computeKerbInfo(
     };
     for (let i = 0; i < samples.length; i++) {
       const d = samples[i].dist;
-      // entry: outside, braking zone on the approach straight only
       if (d >= a - BRAKE && d < a) mark(i, outside, entry);
-      // apex: inside, middle of the corner
       if (d >= a + len * 0.2 && d <= a + len * 0.8) mark(i, inside, apex);
-      // exit: outside, traction zone on the exit straight only
       if (d > b && d <= b + TRACTION) mark(i, outside, exit);
     }
   }
@@ -63,90 +57,119 @@ function triangleWave(x: number): number {
   return 1 - Math.abs(2 * f - 1); // 0 -> 1 -> 0
 }
 
-// Height of the kerb surface at fractional cross-width t (0=inner/flush, 1=outer)
-// and arc distance d. Inner edge stays flush (height 0) for every profile.
-function kerbHeight(profile: KerbType, t: number, d: number): number {
+// Cross-section of a kerb profile: total width, how many columns to sample it,
+// the fraction across where the raised yellow ("hi") part begins, and the height
+// at cross-fraction t (0 = road edge) and arc distance d.
+interface KerbShape {
+  width: number;
+  cols: number;
+  hiFrom: number; // >1 = all red, <=0 = all yellow, else red|yellow split fraction
+  height: (t: number, d: number) => number;
+}
+
+function kerbShape(profile: KerbType): KerbShape | null {
   switch (profile) {
     case 'flat':
-      return 0; // flush — painted onto the surface (rumble via the KERB surface)
-    case 'sausage':
-      return 0.12 * Math.sin(Math.PI * t);
+      return { width: 1.0, cols: 2, hiFrom: 2, height: (t) => (t <= 0 ? 0 : 0.03) };
     case 'serrated':
-      return t <= 0 ? 0 : 0.08 * triangleWave(d / 0.8);
+      return { width: 1.0, cols: 2, hiFrom: 2, height: (t, d) => (t <= 0 ? 0 : 0.05 * triangleWave(d / 0.7)) };
+    case 'ripple':
+      return { width: 1.1, cols: 4, hiFrom: 2, height: (t, d) => (t <= 0 ? 0 : 0.04 * (0.55 + 0.45 * Math.sin(d * 2.0))) };
+    case 'sausage':
+      return { width: 0.9, cols: 6, hiFrom: 0, height: (t) => 0.07 * Math.sin(Math.PI * t) };
+    case 'tall':
+      return { width: 1.2, cols: 6, hiFrom: 0, height: (t) => 0.11 * Math.sin(Math.PI * t) };
+    case 'combo':
+      return {
+        width: 1.7,
+        cols: 10,
+        hiFrom: 0.6,
+        height: (t) => {
+          if (t <= 0) return 0;
+          if (t < 0.6) return 0.03; // flat red section
+          return 0.03 + 0.06 * Math.sin((Math.PI * (t - 0.6)) / 0.4); // yellow sausage on the outer part
+        },
+      };
     default:
-      return 0;
+      return null;
   }
 }
 
-function colsFor(profile: KerbType): number {
-  return profile === 'sausage' ? 4 : 2;
-}
-
-// Build the kerb mesh (1KERB) from per-sample kerb info. Kerbs hug the inside
-// road edge and extend KERB_WIDTH outward — beside the road, never over it.
+// Build the kerbs as two coloured meshes: 1KERB (red/white base) and 1KERBHI
+// (raised yellow sausage part). Both map to the KERB surface in AC (they rumble).
 export function buildKerbs(
   samples: CenterlineSample[],
   info: KerbSample[],
   width: number,
-): MeshData {
-  const vertices: Vec3[] = [];
-  const faces: [number, number, number][] = [];
+): { base: MeshData; hi: MeshData } {
+  const base: MeshData = { name: '1KERB', vertices: [], faces: [] };
+  const hi: MeshData = { name: '1KERBHI', vertices: [], faces: [] };
 
   for (const side of ['left', 'right'] as const) {
     let i = 0;
     while (i < samples.length) {
       const profile = info[i][side];
-      if (profile === 'none') {
-        i++;
-        continue;
-      }
-      // Extend a run of identical profile on this side.
+      if (profile === 'none') { i++; continue; }
       let j = i + 1;
       while (j < samples.length && info[j][side] === profile) j++;
-      if (j - i >= 2) {
-        emitStrip(vertices, faces, samples.slice(i, j), side, profile, width);
-      }
+      if (j - i >= 2) emitStrip(base, hi, samples.slice(i, j), side, profile, width);
       i = j;
     }
   }
-
-  return { name: '1KERB', vertices, faces };
+  return { base, hi };
 }
 
 function emitStrip(
-  vertices: Vec3[],
-  faces: [number, number, number][],
+  base: MeshData,
+  hi: MeshData,
   run: CenterlineSample[],
   side: 'left' | 'right',
   profile: KerbType,
   width: number,
 ): void {
-  const ncols = colsFor(profile);
-  const base = vertices.length;
-  const rowSize = ncols + 1;
+  const shape = kerbShape(profile);
+  if (!shape) return;
+  const { cols } = shape;
+  const boundary = shape.hiFrom > 1 ? cols + 1 : shape.hiFrom <= 0 ? 0 : Math.ceil(shape.hiFrom * cols);
+  const baseEnd = Math.min(boundary, cols);
+  if (baseEnd >= 1) emitSub(base, run, side, shape, 0, baseEnd, width);
+  if (boundary <= cols - 1) emitSub(hi, run, side, shape, boundary, cols, width);
+}
 
+// Emit a strip of the kerb over columns [cFrom, cTo] into `mesh`.
+function emitSub(
+  mesh: MeshData,
+  run: CenterlineSample[],
+  side: 'left' | 'right',
+  shape: KerbShape,
+  cFrom: number,
+  cTo: number,
+  width: number,
+): void {
+  const start = mesh.vertices.length;
+  const rowSize = cTo - cFrom + 1;
+  const sign = side === 'left' ? 1 : -1;
   run.forEach((s) => {
     const [lx, ly] = perpLeft(s.heading);
-    const sign = side === 'left' ? 1 : -1; // outward direction
     const inner = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
-    for (let c = 0; c <= ncols; c++) {
-      const t = c / ncols;
-      const off = t * KERB_WIDTH * sign;
-      vertices.push([
+    for (let c = cFrom; c <= cTo; c++) {
+      const t = c / shape.cols;
+      const off = t * shape.width * sign;
+      mesh.vertices.push([
         inner[0] + lx * off,
         inner[1] + ly * off,
-        s.pos[2] + KERB_LIFT + kerbHeight(profile, t, s.dist),
+        s.pos[2] + KERB_LIFT + shape.height(t, s.dist),
       ]);
     }
   });
-
   for (let r = 0; r < run.length - 1; r++) {
-    for (let c = 0; c < ncols; c++) {
-      const a = base + r * rowSize + c;
-      const b = base + r * rowSize + c + 1;
-      const d = base + (r + 1) * rowSize + c + 1;
-      const e = base + (r + 1) * rowSize + c;
-      addQuadUp(vertices, faces, a, b, d, e);
+    for (let c = 0; c < rowSize - 1; c++) {
+      const a = start + r * rowSize + c;
+      const b = start + r * rowSize + c + 1;
+      const d = start + (r + 1) * rowSize + c + 1;
+      const e = start + (r + 1) * rowSize + c;
+      addQuadUp(mesh.vertices, mesh.faces, a, b, d, e);
     }
   }
 }
+

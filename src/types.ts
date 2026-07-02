@@ -10,7 +10,14 @@ export interface ElevationPoint {
   height: number; // height (m)
 }
 
-export type KerbType = 'none' | 'flat' | 'sausage' | 'serrated';
+export type KerbType =
+  | 'none'
+  | 'flat' // low flat painted red/white kerb
+  | 'serrated' // ramped saw-tooth rumble kerb
+  | 'ripple' // continuous rounded rumble ridges
+  | 'sausage' // raised rounded yellow "sausage" bump
+  | 'tall' // taller aggressive yellow sausage
+  | 'combo'; // flat red/white kerb + raised yellow sausage (the F1 look)
 
 export interface CornerConfig {
   cornerIndex: number; // 0-based index among corner segments, in lap order

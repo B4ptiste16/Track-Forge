@@ -9,7 +9,7 @@ interface Props {
   onChange: (p: TrackProject) => void;
 }
 
-const KERBS: KerbType[] = ['none', 'flat', 'sausage', 'serrated'];
+const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
 type Part = 'entry' | 'apex' | 'exit';
 
 export function KerbConfig({ project, customize, onCustomizeChange, onChange }: Props) {
@@ -49,7 +49,7 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
               {(['entry', 'apex', 'exit'] as Part[]).map((part) => (
                 <div key={part} className="kerb-part">
                   <span className="kerb-part-label">{part}</span>
-                  <KerbSwatch type={c[part]} kerbColor={pal.kerb} />
+                  <KerbSwatch type={c[part]} kerbColor={pal.kerb} kerbHiColor={pal.kerbHi} />
                   <select value={c[part]} onChange={(e) => setPart(c.cornerIndex, part, e.target.value as KerbType)}>
                     {KERBS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>

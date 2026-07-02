@@ -139,10 +139,10 @@ export function buildTrack(project: TrackProject): BuiltTrack {
 
   const empties = buildEmpties(samples, project);
 
-  // Draw/export order: aprons first, then road/pit/kerb, walls last.
+  // Draw/export order: aprons first, then road/pit/kerbs, walls last.
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
-  const meshes: MeshData[] = [...aprons, road, pit, kerb, ...wallMesh].filter((m) => m.faces.length > 0);
+  const meshes: MeshData[] = [...aprons, road, pit, kerb.base, kerb.hi, ...wallMesh].filter((m) => m.faces.length > 0);
 
   return { centerline: samples, spans, totalLength, closure, meshes, empties, overlaps };
 }

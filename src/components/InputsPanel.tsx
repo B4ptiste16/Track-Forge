@@ -8,7 +8,7 @@ interface Props {
   onChange: (p: TrackProject) => void;
 }
 
-const KERBS: KerbType[] = ['none', 'flat', 'sausage', 'serrated'];
+const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
 
 export function InputsPanel({ project, built, onChange }: Props) {
   const total = Math.max(1, Math.round(built.totalLength));
