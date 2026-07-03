@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('desktop', {
   openInKsEditor: (ksPath, fbxPath) => ipcRenderer.invoke('kseditor:open', { ksPath, fbxPath }),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
   showMessage: (type, message) => ipcRenderer.invoke('dialog:message', { type, message }),
+  confirm: (message, detail, buttons) => ipcRenderer.invoke('dialog:confirm', { message, detail, buttons }),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   onUpdateStatus: (cb) => ipcRenderer.on('update:status', (_e, s) => cb(s)),

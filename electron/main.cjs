@@ -158,6 +158,22 @@ ipcMain.handle('dialog:message', async (e, { type, message }) => {
   await dialog.showMessageBox(win, { type: type || 'info', message: String(message), buttons: ['OK'] });
 });
 
+// Multi-button question; resolves to the index of the clicked button.
+ipcMain.handle('dialog:confirm', async (e, { message, detail, buttons }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const list = buttons && buttons.length ? buttons : ['OK', 'Cancel'];
+  const r = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: String(message),
+    detail: detail ? String(detail) : undefined,
+    buttons: list,
+    defaultId: 0,
+    cancelId: list.length - 1,
+    noLink: true,
+  });
+  return r.response;
+});
+
 ipcMain.handle('update:check', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (isDev) {

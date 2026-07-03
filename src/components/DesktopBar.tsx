@@ -42,15 +42,27 @@ export function DesktopBar({ project }: { project: TrackProject }) {
   const exportFolder = async () => {
     if (!desktop) return;
     try {
+      const { slug, files } = buildFileMap(project);
+      // Always confirm the destination — a silent write straight to the saved
+      // folder looked like "nothing happened / it never asked me where".
       let base = s.acTracksPath;
-      if (!base) {
-        setStatus('Choose the folder to export into…');
-        base = (await desktop.pickFolder()) ?? undefined;
-        if (!base) { setStatus('Export cancelled (no folder chosen).'); return; }
+      for (;;) {
+        if (!base) {
+          setStatus('Choose the folder to export into…');
+          base = (await desktop.pickFolder()) ?? undefined;
+          if (!base) { setStatus('Export cancelled (no folder chosen).'); return; }
+        }
+        const choice = await desktop.confirm(
+          `Export "${project.meta.name}" to:`,
+          `${base}\\${slug}\n\n${files.length} files — FBX, ${slug}.fbx.ini (auto-textures), textures, configs.`,
+          ['Export', 'Choose another folder…', 'Cancel'],
+        );
+        if (choice === 2) { setStatus('Export cancelled.'); return; }
+        if (choice === 1) { base = undefined; continue; }
+        break;
       }
       setStatus('Writing files…');
-      const { slug, files } = buildFileMap(project);
-      const res = await desktop.writeTrack(base, slug, serializeForDesktop(files));
+      const res = await desktop.writeTrack(base!, slug, serializeForDesktop(files));
       if (!res.ok) {
         setStatus('Export failed — see dialog.');
         await desktop.showMessage('error', `Could not write to:\n${res.root}\n\n${res.error}\n\nThat location may need admin rights (e.g. Steam in Program Files). Try exporting to Documents/Desktop, then copy the folder into assettocorsa\\content\\tracks.`);

@@ -134,7 +134,7 @@ export function buildKerbs(
   width: number,
   pattern: string[] = KERB_PATTERNS.tarmac_day,
 ): { base: MeshData; hi: MeshData } {
-  const base: MeshData = { name: '1KERB', vertices: [], faces: [], colors: [] };
+  const base: MeshData = { name: '1KERB', vertices: [], faces: [], colors: [], uvs: [] };
   const hi: MeshData = { name: '1KERBHI', vertices: [], faces: [] };
   const stripe = pattern.map(hex01);
 
@@ -196,6 +196,8 @@ function emitSub(
     const [lx, ly] = perpLeft(s.heading);
     const inner = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
     const color = stripe ? stripe[Math.floor(s.dist / STRIPE_LEN) % stripe.length] : null;
+    // one full texture cycle (all stripes) per pattern repeat along the kerb
+    const u = stripe ? s.dist / (STRIPE_LEN * stripe.length) : 0;
     for (let c = cFrom; c <= cTo; c++) {
       const t = c / shape.cols;
       const off = t * shape.width * scale * sign;
@@ -205,6 +207,7 @@ function emitSub(
         s.pos[2] + KERB_LIFT + shape.height(t, s.dist),
       ]);
       if (color && mesh.colors) mesh.colors.push(color);
+      if (stripe && mesh.uvs) mesh.uvs.push([u, t]);
     }
   });
   for (let r = 0; r < run.length - 1; r++) {

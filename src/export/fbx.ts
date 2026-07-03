@@ -157,6 +157,26 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(4, `a: ${nFlat.join(',')}`);
     L(3, '}');
     L(2, '}');
+    if (mn.mesh.uvs && mn.mesh.uvs.length === mn.mesh.vertices.length) {
+      // Per-vertex UVs referenced per polygon-vertex (the layout every FBX
+      // importer accepts). Without UVs the striped kerb/flag textures smear.
+      const uvFlat: string[] = [];
+      for (const uv of mn.mesh.uvs) uvFlat.push(f(uv[0]), f(uv[1]));
+      const uvIdx: string[] = [];
+      for (const face of mn.mesh.faces) uvIdx.push(String(face[0]), String(face[1]), String(face[2]));
+      L(2, 'LayerElementUV: 0 {');
+      L(3, 'Version: 101');
+      L(3, 'Name: "UVMap"');
+      L(3, 'MappingInformationType: "ByPolygonVertex"');
+      L(3, 'ReferenceInformationType: "IndexToDirect"');
+      L(3, `UV: *${uvFlat.length} {`);
+      L(4, `a: ${uvFlat.join(',')}`);
+      L(3, '}');
+      L(3, `UVIndex: *${uvIdx.length} {`);
+      L(4, `a: ${uvIdx.join(',')}`);
+      L(3, '}');
+      L(2, '}');
+    }
     L(2, 'LayerElementMaterial: 0 {');
     L(3, 'Version: 101');
     L(3, 'Name: ""');
@@ -172,6 +192,12 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(4, 'Type: "LayerElementNormal"');
     L(4, 'TypedIndex: 0');
     L(3, '}');
+    if (mn.mesh.uvs && mn.mesh.uvs.length === mn.mesh.vertices.length) {
+      L(3, 'LayerElement:  {');
+      L(4, 'Type: "LayerElementUV"');
+      L(4, 'TypedIndex: 0');
+      L(3, '}');
+    }
     L(3, 'LayerElement:  {');
     L(4, 'Type: "LayerElementMaterial"');
     L(4, 'TypedIndex: 0');

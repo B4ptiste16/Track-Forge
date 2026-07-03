@@ -31,6 +31,7 @@ export interface MeshData {
   vertices: Vec3[];
   faces: [number, number, number][];
   colors?: Vec3[];
+  uvs?: [number, number][]; // per-vertex; meshes without get planar world UVs
 }
 
 // A spawn/timing object, exported as a Blender empty.

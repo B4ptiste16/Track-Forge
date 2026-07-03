@@ -21,6 +21,7 @@ export interface DesktopApi {
   openInKsEditor(ksPath: string, fbxPath: string): Promise<{ ok: boolean; error?: string }>;
   openPath(p: string): Promise<void>;
   showMessage(type: 'info' | 'error' | 'warning', message: string): Promise<void>;
+  confirm(message: string, detail?: string, buttons?: string[]): Promise<number>;
   getVersion(): Promise<string>;
   checkForUpdates(): Promise<void>;
   onUpdateStatus(cb: (s: UpdateStatus) => void): void;

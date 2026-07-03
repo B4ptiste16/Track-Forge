@@ -178,5 +178,14 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [...aprons, road, pit, kerb.base, kerb.hi, ...wallMesh, ...decor].filter((m) => m.faces.length > 0);
 
+  // Every mesh needs UVs for its texture; anything that didn't set its own
+  // (road, aprons, walls…) gets planar world mapping — one tile per 6 m.
+  const UV_TILE = 6;
+  for (const m of meshes) {
+    if (!m.uvs || m.uvs.length !== m.vertices.length) {
+      m.uvs = m.vertices.map((v) => [v[0] / UV_TILE, v[1] / UV_TILE]);
+    }
+  }
+
   return { centerline: samples, spans, totalLength, closure, meshes, empties, overlaps };
 }

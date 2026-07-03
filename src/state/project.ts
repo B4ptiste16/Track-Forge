@@ -38,6 +38,7 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_POLE') return '#9ea3aa';
   if (name === 'DECOR_FLAG') return '#0055A4';
   if (name === 'DECOR_STAND') return '#5f646b';
+  if (name === 'DECOR_FRAME') return '#7c8087';
   if (name === 'DECOR_ARCH') return '#f2f2f2';
   return '#808080';
 }
