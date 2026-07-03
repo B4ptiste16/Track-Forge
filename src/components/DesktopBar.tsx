@@ -17,9 +17,19 @@ export function DesktopBar({ project }: { project: TrackProject }) {
   const [s, setS] = useState<Settings>({});
   const [status, setStatus] = useState('');
   const [open, setOpen] = useState(false);
+  const [version, setVersion] = useState('');
 
   useEffect(() => {
     desktop?.getSettings().then((v) => setS(v as Settings));
+    desktop?.getVersion().then(setVersion);
+    desktop?.onUpdateStatus((u) => {
+      if (u.state === 'checking') setStatus('Checking for updates…');
+      else if (u.state === 'available') setStatus(`Update v${u.version} found — downloading…`);
+      else if (u.state === 'downloading') setStatus(`Downloading update… ${u.percent ?? 0}%`);
+      else if (u.state === 'downloaded') setStatus('Update ready — restart to install.');
+      else if (u.state === 'none') setStatus('Up to date.');
+      else if (u.state === 'error') setStatus('Update check failed.');
+    });
   }, []);
 
   const save = (next: Settings) => {
@@ -113,6 +123,11 @@ export function DesktopBar({ project }: { project: TrackProject }) {
           {s.lastRoot && (
             <button className="small" onClick={() => desktop?.openPath(s.lastRoot!)}>open last export folder</button>
           )}
+          <div>
+            <b>Updates</b>
+            <div className="muted">Version {version || '…'}</div>
+            <button className="small" onClick={() => desktop?.checkForUpdates()}>Check for updates</button>
+          </div>
         </div>
       )}
     </span>

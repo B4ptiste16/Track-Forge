@@ -1,7 +1,7 @@
 {
   "name": "ac-track-forge",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Design Assetto Corsa circuits and export a drivable track package.",
   "author": "B4ptiste16",
   "type": "module",
@@ -18,13 +18,33 @@
   "build": {
     "appId": "com.actrackforge.app",
     "productName": "AC Track Forge",
-    "files": ["dist/**/*", "electron/**/*"],
-    "directories": { "output": "release" },
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "icon": "build/icon.png",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "B4ptiste16",
+        "repo": "Track-Forge"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "jszip": "^3.10.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

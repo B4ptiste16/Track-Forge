@@ -2,8 +2,10 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 
 const isDev = !app.isPackaged;
+let manualCheck = false; // whether the current update check was user-initiated
 
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
@@ -19,11 +21,43 @@ function saveSettings(s) {
   fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2));
 }
 
+function setupAutoUpdate(win) {
+  const send = (s) => { if (!win.isDestroyed()) win.webContents.send('update:status', s); };
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => send({ state: 'checking' }));
+  autoUpdater.on('update-available', (info) => send({ state: 'available', version: info.version }));
+  autoUpdater.on('update-not-available', () => {
+    send({ state: 'none' });
+    if (manualCheck) dialog.showMessageBox(win, { type: 'info', message: `You're up to date (v${app.getVersion()}).`, buttons: ['OK'] });
+    manualCheck = false;
+  });
+  autoUpdater.on('error', (e) => {
+    send({ state: 'error', message: String(e) });
+    if (manualCheck) dialog.showMessageBox(win, { type: 'error', message: 'Update check failed:\n' + String(e), buttons: ['OK'] });
+    manualCheck = false;
+  });
+  autoUpdater.on('download-progress', (p) => send({ state: 'downloading', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (info) => {
+    send({ state: 'downloaded', version: info.version });
+    dialog
+      .showMessageBox(win, {
+        type: 'info',
+        buttons: ['Restart & update', 'Later'],
+        defaultId: 0,
+        message: `Update v${info.version} is ready.`,
+        detail: 'Restart now to install it?',
+      })
+      .then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
     backgroundColor: '#0f1014',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -36,6 +70,8 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+  setupAutoUpdate(win);
+  if (!isDev) autoUpdater.checkForUpdates().catch(() => {}); // silent check on launch
 }
 
 app.whenReady().then(() => {
@@ -102,3 +138,17 @@ ipcMain.handle('dialog:message', async (e, { type, message }) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   await dialog.showMessageBox(win, { type: type || 'info', message: String(message), buttons: ['OK'] });
 });
+
+ipcMain.handle('update:check', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (isDev) {
+    win.webContents.send('update:status', { state: 'dev' });
+    await dialog.showMessageBox(win, { type: 'info', message: 'Auto-update only runs in the installed app.', buttons: ['OK'] });
+    return;
+  }
+  manualCheck = true;
+  autoUpdater.checkForUpdates().catch((err) => {
+    win.webContents.send('update:status', { state: 'error', message: String(err) });
+  });
+});
+ipcMain.handle('app:getVersion', () => app.getVersion());

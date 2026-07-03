@@ -21,6 +21,16 @@ export interface DesktopApi {
   openInKsEditor(ksPath: string, fbxPath: string): Promise<{ ok: boolean; error?: string }>;
   openPath(p: string): Promise<void>;
   showMessage(type: 'info' | 'error' | 'warning', message: string): Promise<void>;
+  getVersion(): Promise<string>;
+  checkForUpdates(): Promise<void>;
+  onUpdateStatus(cb: (s: UpdateStatus) => void): void;
+}
+
+export interface UpdateStatus {
+  state: 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error' | 'dev';
+  version?: string;
+  percent?: number;
+  message?: string;
 }
 
 export const desktop: DesktopApi | undefined = (
