@@ -82,7 +82,8 @@ export function DesktopBar({ project }: { project: TrackProject }) {
       }
       const r = await desktop.openInKsEditor(ks, s.lastFbx);
       if (r.ok) {
-        setStatus('✓ Launched KsEditor.');
+        setStatus('✓ KsEditor launched — File → Import FBX → Export KN5 (textures auto-assign).');
+        if (s.lastRoot) await desktop.openPath(s.lastRoot); // show the folder with the fbx
       } else {
         setStatus('KsEditor failed.');
         await desktop.showMessage('error', 'Could not launch KsEditor:\n' + (r.error || 'failed'));

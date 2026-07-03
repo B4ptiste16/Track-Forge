@@ -7,6 +7,7 @@ import { genSurfacesIni } from './surfaces';
 import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
+import { genKsPersistence } from './ksPersistence';
 
 // One file in the track package. Either text or binary bytes.
 export interface TrackFile {
@@ -21,9 +22,12 @@ export function buildFileMap(project: TrackProject): { slug: string; files: Trac
   const slug = slugify(project.meta.name);
   const built = buildTrack(project);
   const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme);
+  const fbxText = genFbx(project, built);
 
   const files: TrackFile[] = [
-    { path: `${slug}.fbx`, text: genFbx(project, built) },
+    { path: `${slug}.fbx`, text: fbxText },
+    // KsEditor auto-loads this on Import FBX → all materials pre-assigned.
+    { path: `${slug}.fbx.ini`, text: genKsPersistence(slug, fbxText, built, textures) },
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
     { path: 'ui/ui_track.json', text: genUiTrack(project, built) },
     { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },

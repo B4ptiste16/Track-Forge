@@ -139,7 +139,10 @@ ipcMain.handle('kseditor:open', async (_e, { ksPath, fbxPath }) => {
   if (!ksPath || !fs.existsSync(ksPath)) return { ok: false, error: 'Set a valid KsEditor.exe path first.' };
   if (!fbxPath || !fs.existsSync(fbxPath)) return { ok: false, error: 'Export the track first.' };
   try {
-    spawn(ksPath, [fbxPath], { detached: true, stdio: 'ignore' }).unref();
+    // KsEditor needs to start in its own folder (it loads cfg/system relative
+    // to the cwd) and does not accept a file argument — the user does
+    // File → Import FBX, where our .fbx.ini pre-assigns all materials.
+    spawn(ksPath, [], { cwd: path.dirname(ksPath), detached: true, stdio: 'ignore' }).unref();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };

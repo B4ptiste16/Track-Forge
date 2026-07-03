@@ -81,8 +81,10 @@ export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme): TexF
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     const name = `${shortName(m.name)}.png`;
+    // Textures live NEXT TO the fbx so KsEditor's persistence auto-load finds
+    // them (same layout Race Track Builder uses).
     out.push({
-      path: `texture/${name}`,
+      path: name,
       name,
       surface: m.name,
       bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal), theme)),
