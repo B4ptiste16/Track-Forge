@@ -1,7 +1,7 @@
 import type { RunoffType, WallConfig, WallGap, ManualWall } from '../types';
-import type { CenterlineSample, MeshData, Vec3 } from './types';
+import type { CenterlineSample, MeshData, SegmentSpan, Vec3 } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
-import { addQuadUp, addQuadToward } from './meshbuilder';
+import { addQuadUp, addQuadToward, addTriUp } from './meshbuilder';
 
 export interface SideOffset {
   left: number;
@@ -46,6 +46,106 @@ export function runoffSurfaceName(type: RunoffType): string {
   if (type === 'gravel') return '1SAND';
   if (type === 'concrete') return '1CONCRETE';
   return '1GRASS'; // grass and the verge of a 'wall' section
+}
+
+// One corner to fill on the inside, with the surface chosen for its infield.
+export interface CornerFill {
+  span: SegmentSpan;
+  radius: number; // clamped corner radius
+  dir: 'left' | 'right';
+  surface: string; // mesh name: 1GRASS / 1SAND / 1CONCRETE
+  depth: number; // how far in from the road edge to fill (m)
+}
+
+// Clean infield fill for the inside of each corner: a concentric ring from the
+// inside road edge toward the arc centre (a full pie when the corner is tight).
+// This replaces the old clamped/slope-limited apron there, which produced a
+// lumpy blob shape on hairpins.
+export function buildCornerFill(
+  samples: CenterlineSample[],
+  width: number,
+  fills: CornerFill[],
+): MeshData[] {
+  const bySurface = new Map<string, MeshData>();
+  const get = (name: string): MeshData => {
+    let m = bySurface.get(name);
+    if (!m) { m = { name, vertices: [], faces: [] }; bySurface.set(name, m); }
+    return m;
+  };
+
+  for (const fl of fills) {
+    const span = fl.span;
+    const idx: number[] = [];
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].segIndex === span.segIndex) idx.push(i);
+    }
+    if (idx.length < 2) continue;
+
+    const rIn = fl.radius - width / 2; // radius of the inside road edge arc
+    if (rIn <= 0.2) continue;
+    const sign = fl.dir === 'left' ? 1 : -1;
+    // Fill from the edge inward by `depth`; if what would remain in the middle
+    // is a sliver, fill all the way to the centre (pie) for a clean hairpin.
+    const CORE_MIN = 8;
+    const toCentre = rIn - Math.max(0, Math.min(fl.depth, rIn)) < CORE_MIN;
+    const holdR = toCentre ? 0 : rIn - fl.depth;
+
+    const mesh = get(fl.surface);
+    const edge = (i: number): Vec3 => {
+      const s = samples[i];
+      return fl.dir === 'left' ? leftEdge(s, width) : rightEdge(s, width);
+    };
+    const centre = (i: number): Vec3 => {
+      const s = samples[i];
+      const [lx, ly] = perpLeft(s.heading);
+      return [s.pos[0] + lx * fl.radius * sign, s.pos[1] + ly * fl.radius * sign, s.pos[2]];
+    };
+    const ringPt = (i: number, r: number): Vec3 => {
+      const c = centre(i);
+      const e = edge(i);
+      const t = rIn > 0 ? r / rIn : 0;
+      return [c[0] + (e[0] - c[0]) * t, c[1] + (e[1] - c[1]) * t, e[2]];
+    };
+
+    if (toCentre) {
+      // Pie: ring strip from the edge down to a tiny core, then a fan to centre.
+      const rims = [rIn, rIn * 0.6, rIn * 0.25];
+      for (let k = 0; k < rims.length - 1; k++) {
+        for (let n = 0; n < idx.length - 1; n++) {
+          const b = mesh.vertices.length;
+          mesh.vertices.push(ringPt(idx[n], rims[k]));
+          mesh.vertices.push(ringPt(idx[n], rims[k + 1]));
+          mesh.vertices.push(ringPt(idx[n + 1], rims[k]));
+          mesh.vertices.push(ringPt(idx[n + 1], rims[k + 1]));
+          addQuadUp(mesh.vertices, mesh.faces, b, b + 1, b + 3, b + 2);
+        }
+      }
+      // central fan (single centre vertex at the mean height)
+      const mid = idx[Math.floor(idx.length / 2)];
+      const c = centre(mid);
+      let zSum = 0;
+      for (const i of idx) zSum += samples[i].pos[2];
+      const cv = mesh.vertices.length;
+      mesh.vertices.push([c[0], c[1], zSum / idx.length]);
+      for (let n = 0; n < idx.length - 1; n++) {
+        const b = mesh.vertices.length;
+        mesh.vertices.push(ringPt(idx[n], rims[rims.length - 1]));
+        mesh.vertices.push(ringPt(idx[n + 1], rims[rims.length - 1]));
+        addTriUp(mesh.vertices, mesh.faces, cv, b, b + 1);
+      }
+    } else {
+      // Ring band from the road edge inward by `depth`.
+      for (let n = 0; n < idx.length - 1; n++) {
+        const b = mesh.vertices.length;
+        mesh.vertices.push(edge(idx[n]));
+        mesh.vertices.push(ringPt(idx[n], holdR));
+        mesh.vertices.push(edge(idx[n + 1]));
+        mesh.vertices.push(ringPt(idx[n + 1], holdR));
+        addQuadUp(mesh.vertices, mesh.faces, b, b + 1, b + 3, b + 2);
+      }
+    }
+  }
+  return [...bySurface.values()].filter((m) => m.faces.length > 0);
 }
 
 // Per-sample corner info (null on straights) used for the inside clamp.

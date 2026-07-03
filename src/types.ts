@@ -25,6 +25,11 @@ export interface CornerConfig {
   apex: KerbType;
   exit: KerbType;
   escape?: boolean; // paved escape road on the outside of this corner
+  kerbWidth?: number; // m — overrides the profile's default cross-section width
+  entryLen?: number; // m of entry kerb before the corner (default 25)
+  exitLen?: number; // m of exit kerb after the corner (default 30)
+  apexLen?: number; // m of apex kerb, centered mid-corner (default 60% of the arc)
+  insideSurface?: 'grass' | 'gravel' | 'concrete'; // infield fill inside this corner
 }
 
 // Per-section runoff treatment for one side of the road.
@@ -39,7 +44,7 @@ export interface SectionRunoff {
   right: SectionSide;
 }
 
-export type Theme = 'tarmac_day' | 'tarmac_dusk' | 'desert';
+export type Theme = 'tarmac_day' | 'tarmac_dusk' | 'desert' | 'france';
 export type Direction = 'cw' | 'ccw';
 
 export interface PitConfig {

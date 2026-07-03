@@ -39,6 +39,18 @@ export function addQuadUp(
   }
 }
 
+// Add a single triangle wound so its normal points up (+Z).
+export function addTriUp(
+  vertices: Vec3[],
+  faces: [number, number, number][],
+  v0: number,
+  v1: number,
+  v2: number,
+): void {
+  if (triNormalZ(vertices[v0], vertices[v1], vertices[v2]) >= 0) faces.push([v0, v1, v2]);
+  else faces.push([v0, v2, v1]);
+}
+
 // Add a quad whose face normals are made to point toward `dir` (used for walls,
 // so barriers are lit/visible from the track side).
 export function addQuadToward(

@@ -16,6 +16,13 @@ function toGeometry(mesh: MeshData): THREE.BufferGeometry {
     idx[i * 3] = f[0]; idx[i * 3 + 1] = f[1]; idx[i * 3 + 2] = f[2];
   });
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  if (mesh.colors && mesh.colors.length === mesh.vertices.length) {
+    const col = new Float32Array(mesh.colors.length * 3);
+    mesh.colors.forEach((c, i) => {
+      col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+    });
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   geo.computeVertexNormals();
   return geo;
@@ -160,8 +167,14 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
 
     for (const mesh of built.meshes) {
       if (mesh.faces.length === 0) continue;
-      const side = mesh.name === '1WALL' ? THREE.DoubleSide : THREE.FrontSide;
-      const mat = new THREE.MeshStandardMaterial({ color: meshColor(mesh.name, pal), roughness: 0.95, side });
+      const side = mesh.name === '1WALL' || mesh.name.startsWith('DECOR') ? THREE.DoubleSide : THREE.FrontSide;
+      const vc = !!mesh.colors && mesh.colors.length === mesh.vertices.length;
+      const mat = new THREE.MeshStandardMaterial({
+        color: vc ? '#ffffff' : meshColor(mesh.name, pal),
+        vertexColors: vc,
+        roughness: 0.95,
+        side,
+      });
       group.add(new THREE.Mesh(toGeometry(mesh), mat));
     }
 

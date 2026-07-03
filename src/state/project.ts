@@ -22,6 +22,7 @@ export const THEME_PALETTES: Record<Theme, Palette> = {
   tarmac_day: { road: '#3a3a3e', grass: '#4f7a3a', kerb: '#c43a3a', kerbHi: '#e8b200', wall: '#7d7f86', pit: '#46464c', sand: '#b9a06a', concrete: '#8f9095', background: '#afc7e0' },
   tarmac_dusk: { road: '#2e2e36', grass: '#3f5f36', kerb: '#d05a2a', kerbHi: '#d99a10', wall: '#5c5e66', pit: '#3a3a44', sand: '#8f7a4e', concrete: '#6f7076', background: '#6b5a78' },
   desert: { road: '#4a4540', grass: '#c2a868', kerb: '#c0392b', kerbHi: '#e0b020', wall: '#9a8f78', pit: '#55504a', sand: '#cdb277', concrete: '#b8a98f', background: '#e9c98f' },
+  france: { road: '#3a3a3e', grass: '#4f7a3a', kerb: '#0055A4', kerbHi: '#e8b200', wall: '#7d7f86', pit: '#46464c', sand: '#b9a06a', concrete: '#8f9095', background: '#bcd2ea' },
 };
 
 // Colour for a baked mesh by its AC surface name.
@@ -34,6 +35,10 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === '1PIT') return pal.pit;
   if (name === '1SAND') return pal.sand;
   if (name === '1CONCRETE') return pal.concrete;
+  if (name === 'DECOR_POLE') return '#9ea3aa';
+  if (name === 'DECOR_FLAG') return '#0055A4';
+  if (name === 'DECOR_STAND') return '#5f646b';
+  if (name === 'DECOR_ARCH') return '#f2f2f2';
   return '#808080';
 }
 

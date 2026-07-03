@@ -22,7 +22,11 @@ function saveSettings(s) {
 }
 
 function setupAutoUpdate(win) {
-  const send = (s) => { if (!win.isDestroyed()) win.webContents.send('update:status', s); };
+  // Don't message the renderer until the page has actually loaded — the updater
+  // can emit before the first navigation finishes (disposed-frame errors).
+  let rendererReady = false;
+  win.webContents.on('did-finish-load', () => { rendererReady = true; });
+  const send = (s) => { if (rendererReady && !win.isDestroyed()) win.webContents.send('update:status', s); };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('checking-for-update', () => send({ state: 'checking' }));
@@ -53,11 +57,14 @@ function setupAutoUpdate(win) {
 }
 
 function createWindow() {
+  // Packaged builds get their icon from the exe; the png path only exists in dev
+  // (build/ isn't bundled into the asar).
+  const devIcon = path.join(__dirname, '..', 'build', 'icon.png');
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
     backgroundColor: '#0f1014',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    ...(isDev && fs.existsSync(devIcon) ? { icon: devIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -65,6 +72,15 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
+  // Self-heal: if the renderer dies (GPU hiccup, corrupted cache…), reload it a
+  // couple of times instead of leaving a dead black window.
+  let crashReloads = 0;
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('renderer gone:', details.reason, details.exitCode);
+    if (details.reason !== 'clean-exit' && crashReloads++ < 2) {
+      setTimeout(() => { if (!win.isDestroyed()) win.webContents.reload(); }, 500);
+    }
+  });
   if (isDev) {
     win.loadURL('http://localhost:5173');
   } else {

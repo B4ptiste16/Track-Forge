@@ -11,6 +11,7 @@ interface Props {
 
 const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
 type Part = 'entry' | 'apex' | 'exit';
+const INSIDE_SURFACES = ['grass', 'gravel', 'concrete'] as const;
 
 export function KerbConfig({ project, customize, onCustomizeChange, onChange }: Props) {
   const pal = THEME_PALETTES[project.meta.theme];
@@ -21,6 +22,34 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
     );
     onChange({ ...project, corners });
   };
+
+  const setCorner = (cornerIndex: number, patch: Partial<CornerConfig>) => {
+    const corners = project.corners.map((c) =>
+      c.cornerIndex === cornerIndex ? { ...c, ...patch } : c,
+    );
+    onChange({ ...project, corners });
+  };
+
+  // Numeric field that shows a placeholder default and stores undefined when cleared.
+  const num = (
+    c: CornerConfig,
+    key: 'kerbWidth' | 'entryLen' | 'apexLen' | 'exitLen',
+    label: string,
+    placeholder: string,
+    max: number,
+  ) => (
+    <label className="kerb-num" title={`${label} — leave empty for the default (${placeholder})`}>
+      <span className="kerb-part-label">{label}</span>
+      <input
+        type="number" min={0} max={max} step={0.5}
+        value={c[key] ?? ''}
+        placeholder={placeholder}
+        onChange={(e) =>
+          setCorner(c.cornerIndex, { [key]: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })
+        }
+      />
+    </label>
+  );
 
   return (
     <div className="panel">
@@ -55,6 +84,21 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
                   </select>
                 </div>
               ))}
+            </div>
+            <div className="kerb-nums">
+              {num(c, 'kerbWidth', 'width m', 'auto', 5)}
+              {num(c, 'entryLen', 'entry m', '25', 200)}
+              {num(c, 'apexLen', 'apex m', '60%', 400)}
+              {num(c, 'exitLen', 'exit m', '30', 200)}
+              <label className="kerb-num" title="Surface filling the inside of this corner">
+                <span className="kerb-part-label">inside</span>
+                <select
+                  value={c.insideSurface ?? 'grass'}
+                  onChange={(e) => setCorner(c.cornerIndex, { insideSurface: e.target.value as CornerConfig['insideSurface'] })}
+                >
+                  {INSIDE_SURFACES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
             </div>
           </div>
         ))}

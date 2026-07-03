@@ -161,6 +161,9 @@
 }
 .kerb-corner-title { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
 .kerb-parts { display: flex; gap: 8px; }
+.kerb-nums { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.kerb-num { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 52px; }
+.kerb-num input, .kerb-num select { width: 100%; min-width: 0; }
 .kerb-part { display: flex; flex-direction: column; gap: 3px; align-items: stretch; flex: 1; }
 .kerb-part-label { font-size: 11px; text-transform: capitalize; color: var(--text-dim); }
 .kerb-part select { width: 100%; }

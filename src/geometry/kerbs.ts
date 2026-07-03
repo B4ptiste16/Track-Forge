@@ -1,14 +1,38 @@
-import type { KerbType, CornerConfig } from '../types';
-import type { CenterlineSample, MeshData, SegmentSpan } from './types';
+import type { KerbType, CornerConfig, Theme } from '../types';
+import type { CenterlineSample, MeshData, SegmentSpan, Vec3 } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
 import { addQuadUp } from './meshbuilder';
 
 export const KERB_WIDTH = 1.0; // representative kerb width (m); real width varies per profile
 const KERB_LIFT = 0.01; // tiny lift so kerbs don't z-fight the road
 
+export const DEFAULT_ENTRY_LEN = 25; // braking-zone kerb length before the corner (outside)
+export const DEFAULT_EXIT_LEN = 30; // traction-zone kerb length after the corner (outside)
+const STRIPE_LEN = 2.5; // m per painted stripe along the kerb
+
+// Painted stripe cycle per theme (used for the preview vertex colours AND the
+// exported kerb texture). France = the bleu-blanc-rouge tricolore.
+export const KERB_PATTERNS: Record<Theme, string[]> = {
+  tarmac_day: ['#c43a3a', '#e8e8e8'],
+  tarmac_dusk: ['#d05a2a', '#e8e8e8'],
+  desert: ['#c0392b', '#e8e8e8'],
+  france: ['#0055A4', '#f2f2f2', '#EF4135'],
+};
+
+export function hex01(hex: string): Vec3 {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+  ];
+}
+
 export interface KerbSample {
   left: KerbType;
   right: KerbType;
+  leftW: number; // per-corner width override (m); 0 = profile default
+  rightW: number;
 }
 
 // For every centerline sample, decide which kerb profile (if any) sits where.
@@ -18,10 +42,7 @@ export function computeKerbInfo(
   corners: CornerConfig[],
   defaultKerb: KerbType,
 ): KerbSample[] {
-  const info: KerbSample[] = samples.map(() => ({ left: 'none', right: 'none' }));
-
-  const BRAKE = 25; // braking-zone kerb length before the corner (outside)
-  const TRACTION = 30; // traction-zone kerb length after the corner (outside)
+  const info: KerbSample[] = samples.map(() => ({ left: 'none', right: 'none', leftW: 0, rightW: 0 }));
 
   for (const span of spans) {
     if (span.kind !== 'corner') continue;
@@ -37,15 +58,24 @@ export function computeKerbInfo(
     const a = span.startDist;
     const b = span.endDist;
     const len = b - a;
+    const entryLen = Math.max(0, cfg?.entryLen ?? DEFAULT_ENTRY_LEN);
+    const exitLen = Math.max(0, cfg?.exitLen ?? DEFAULT_EXIT_LEN);
+    const apexLen = Math.min(len, Math.max(0, cfg?.apexLen ?? len * 0.6));
+    const apexFrom = a + (len - apexLen) / 2;
+    const apexTo = apexFrom + apexLen;
+    const w = Math.max(0, cfg?.kerbWidth ?? 0);
 
     const mark = (i: number, side: 'left' | 'right', profile: KerbType) => {
-      if (profile !== 'none') info[i][side] = profile;
+      if (profile === 'none') return;
+      info[i][side] = profile;
+      if (side === 'left') info[i].leftW = w;
+      else info[i].rightW = w;
     };
     for (let i = 0; i < samples.length; i++) {
       const d = samples[i].dist;
-      if (d >= a - BRAKE && d < a) mark(i, outside, entry);
-      if (d >= a + len * 0.2 && d <= a + len * 0.8) mark(i, inside, apex);
-      if (d > b && d <= b + TRACTION) mark(i, outside, exit);
+      if (d >= a - entryLen && d < a) mark(i, outside, entry);
+      if (d >= apexFrom && d <= apexTo) mark(i, inside, apex);
+      if (d > b && d <= b + exitLen) mark(i, outside, exit);
     }
   }
 
@@ -95,24 +125,32 @@ function kerbShape(profile: KerbType): KerbShape | null {
   }
 }
 
-// Build the kerbs as two coloured meshes: 1KERB (red/white base) and 1KERBHI
+// Build the kerbs as two coloured meshes: 1KERB (striped base) and 1KERBHI
 // (raised yellow sausage part). Both map to the KERB surface in AC (they rumble).
+// The base mesh gets per-vertex stripe colours from the theme pattern.
 export function buildKerbs(
   samples: CenterlineSample[],
   info: KerbSample[],
   width: number,
+  pattern: string[] = KERB_PATTERNS.tarmac_day,
 ): { base: MeshData; hi: MeshData } {
-  const base: MeshData = { name: '1KERB', vertices: [], faces: [] };
+  const base: MeshData = { name: '1KERB', vertices: [], faces: [], colors: [] };
   const hi: MeshData = { name: '1KERBHI', vertices: [], faces: [] };
+  const stripe = pattern.map(hex01);
 
   for (const side of ['left', 'right'] as const) {
     let i = 0;
     while (i < samples.length) {
       const profile = info[i][side];
       if (profile === 'none') { i++; continue; }
+      const w = side === 'left' ? info[i].leftW : info[i].rightW;
       let j = i + 1;
-      while (j < samples.length && info[j][side] === profile) j++;
-      if (j - i >= 2) emitStrip(base, hi, samples.slice(i, j), side, profile, width);
+      while (
+        j < samples.length &&
+        info[j][side] === profile &&
+        (side === 'left' ? info[j].leftW : info[j].rightW) === w
+      ) j++;
+      if (j - i >= 2) emitStrip(base, hi, samples.slice(i, j), side, profile, w, width, stripe);
       i = j;
     }
   }
@@ -125,15 +163,18 @@ function emitStrip(
   run: CenterlineSample[],
   side: 'left' | 'right',
   profile: KerbType,
+  widthOverride: number,
   width: number,
+  stripe: Vec3[],
 ): void {
   const shape = kerbShape(profile);
   if (!shape) return;
+  const scale = widthOverride > 0 ? widthOverride / shape.width : 1;
   const { cols } = shape;
   const boundary = shape.hiFrom > 1 ? cols + 1 : shape.hiFrom <= 0 ? 0 : Math.ceil(shape.hiFrom * cols);
   const baseEnd = Math.min(boundary, cols);
-  if (baseEnd >= 1) emitSub(base, run, side, shape, 0, baseEnd, width);
-  if (boundary <= cols - 1) emitSub(hi, run, side, shape, boundary, cols, width);
+  if (baseEnd >= 1) emitSub(base, run, side, shape, 0, baseEnd, width, scale, stripe);
+  if (boundary <= cols - 1) emitSub(hi, run, side, shape, boundary, cols, width, scale, null);
 }
 
 // Emit a strip of the kerb over columns [cFrom, cTo] into `mesh`.
@@ -145,6 +186,8 @@ function emitSub(
   cFrom: number,
   cTo: number,
   width: number,
+  scale: number,
+  stripe: Vec3[] | null,
 ): void {
   const start = mesh.vertices.length;
   const rowSize = cTo - cFrom + 1;
@@ -152,14 +195,16 @@ function emitSub(
   run.forEach((s) => {
     const [lx, ly] = perpLeft(s.heading);
     const inner = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
+    const color = stripe ? stripe[Math.floor(s.dist / STRIPE_LEN) % stripe.length] : null;
     for (let c = cFrom; c <= cTo; c++) {
       const t = c / shape.cols;
-      const off = t * shape.width * sign;
+      const off = t * shape.width * scale * sign;
       mesh.vertices.push([
         inner[0] + lx * off,
         inner[1] + ly * off,
         s.pos[2] + KERB_LIFT + shape.height(t, s.dist),
       ]);
+      if (color && mesh.colors) mesh.colors.push(color);
     }
   });
   for (let r = 0; r < run.length - 1; r++) {
@@ -172,4 +217,3 @@ function emitSub(
     }
   }
 }
-

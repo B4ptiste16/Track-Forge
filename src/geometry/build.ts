@@ -4,12 +4,13 @@ import { buildCenterline, computeClosure } from './centerline';
 import { makeHeightFn } from './elevation';
 import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
-import { computeKerbInfo, buildKerbs } from './kerbs';
+import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
 import { computePitInfo, buildPitLane } from './pitlane';
 import {
-  buildRunoff, buildGroundPlane, buildManualWalls, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
-  type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample,
+  buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
+  type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
 } from './runoff';
+import { buildDecor } from './decor';
 import { buildEmpties } from './spawns';
 
 const ESCAPE_WIDTH = 35; // m paved escape road on the outside of a corner
@@ -82,6 +83,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     if (corner?.escape && side === outside) {
       return { surface: '1CONCRETE', width: Math.max(base.dist, ESCAPE_WIDTH), wall: false };
     }
+    if (corner && side === corner.dir) {
+      // Inside of a corner: covered by the concentric infield fill instead of
+      // the strip apron (which went lumpy on hairpins). No apron, no wall.
+      return { surface: runoffSurfaceName(base.type === 'wall' ? 'grass' : base.type), width: 0, wall: false };
+    }
     return { surface: runoffSurfaceName(base.type), width: base.dist, wall: base.type === 'wall' ? true : base.wall };
   };
   const resolved: ResolvedSample[] = samples.map((s, i) => {
@@ -105,8 +111,35 @@ export function buildTrack(project: TrackProject): BuiltTrack {
 
   const road = buildRoad(samples, width);
   const pit = buildPitLane(samples, pitInfo, width);
-  const kerb = buildKerbs(samples, kerbInfo, width);
+  const kerb = buildKerbs(samples, kerbInfo, width, KERB_PATTERNS[project.meta.theme] ?? KERB_PATTERNS.tarmac_day);
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps);
+
+  // Clean infield fill on the inside of every corner (surface per corner config).
+  const fills: CornerFill[] = [];
+  for (const span of spans) {
+    if (span.kind !== 'corner') continue;
+    const seg = segsClamped[span.segIndex];
+    if (seg.kind !== 'corner') continue;
+    const cfg = project.corners.find((c) => c.cornerIndex === span.cornerIndex);
+    const sec = sectionFor(span.segIndex);
+    const sideCfg: SectionSide = (sec ? sec[seg.dir] : project.runoffDefault) ?? project.runoffDefault;
+    const insideType = cfg?.insideSurface ?? (sideCfg.type === 'wall' ? 'grass' : sideCfg.type);
+    fills.push({
+      span, radius: seg.radius, dir: seg.dir,
+      surface: runoffSurfaceName(insideType),
+      depth: Math.max(6, sideCfg.dist),
+    });
+  }
+  for (const fm of buildCornerFill(samples, width, fills)) {
+    const target = runoffMeshes.find((m) => m.name === fm.name);
+    if (target) {
+      const b = target.vertices.length;
+      fm.vertices.forEach((v) => target.vertices.push(v));
+      fm.faces.forEach((f) => target.faces.push([f[0] + b, f[1] + b, f[2] + b]));
+    } else {
+      runoffMeshes.push(fm);
+    }
+  }
 
   // Hand-drawn barriers merge into the 1WALL mesh.
   if (project.manualWalls?.length) {
@@ -138,11 +171,12 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   }
 
   const empties = buildEmpties(samples, project);
+  const decor = buildDecor(project, samples, spans, width, resolved);
 
-  // Draw/export order: aprons first, then road/pit/kerbs, walls last.
+  // Draw/export order: aprons first, then road/pit/kerbs, walls, then decor.
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
-  const meshes: MeshData[] = [...aprons, road, pit, kerb.base, kerb.hi, ...wallMesh].filter((m) => m.faces.length > 0);
+  const meshes: MeshData[] = [...aprons, road, pit, kerb.base, kerb.hi, ...wallMesh, ...decor].filter((m) => m.faces.length > 0);
 
   return { centerline: samples, spans, totalLength, closure, meshes, empties, overlaps };
 }

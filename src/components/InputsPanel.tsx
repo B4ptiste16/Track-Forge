@@ -49,8 +49,12 @@ export function InputsPanel({ project, built, onChange }: Props) {
             <option value="tarmac_day">Tarmac — day</option>
             <option value="tarmac_dusk">Tarmac — dusk</option>
             <option value="desert">Desert</option>
+            <option value="france">France 🇫🇷</option>
           </select>
         </label>
+        {project.meta.theme === 'france' && (
+          <p className="muted">Bleu-blanc-rouge kerbs, a giant tricolore at turn&nbsp;1, grandstands on the main straight &amp; turn&nbsp;1, and a tricolor start/finish arch.</p>
+        )}
         <label>Direction
           <select value={project.meta.direction} onChange={(e) => meta({ direction: e.target.value as Direction })}>
             <option value="cw">Clockwise</option>

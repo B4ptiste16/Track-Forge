@@ -1,5 +1,9 @@
 import type { BuiltTrack } from '../geometry';
+import type { Theme } from '../types';
 import { meshColor, type Palette } from '../state/project';
+import { KERB_PATTERNS } from '../geometry/kerbs';
+
+const TRICOLORE = ['#0055A4', '#f2f2f2', '#EF4135'];
 
 export interface TexFile {
   path: string; // e.g. texture/road.png
@@ -27,8 +31,8 @@ function hexRgb(hex: string): [number, number, number] {
 }
 
 // Draw a 64x64 placeholder texture for a surface: a solid base colour with very
-// light noise, and red/white stripes for kerbs so the track reads clearly.
-function drawTexture(surface: string, hex: string): string {
+// light noise, painted stripes for kerbs, and tricolore art for the France decor.
+function drawTexture(surface: string, hex: string, theme: Theme): string {
   const size = 64;
   const c = document.createElement('canvas');
   c.width = c.height = size;
@@ -37,8 +41,22 @@ function drawTexture(surface: string, hex: string): string {
   ctx.fillRect(0, 0, size, size);
 
   if (surface === '1KERB') {
-    ctx.fillStyle = '#e8e8e8';
-    for (let x = 0; x < size; x += 16) ctx.fillRect(x, 0, 8, size);
+    const pattern = KERB_PATTERNS[theme] ?? KERB_PATTERNS.tarmac_day;
+    const w = size / pattern.length;
+    pattern.forEach((col, i) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.round(i * w), 0, Math.ceil(w), size);
+    });
+  } else if (surface === 'DECOR_FLAG' || surface === 'DECOR_ARCH') {
+    TRICOLORE.forEach((col, i) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.round((i * size) / 3), 0, Math.ceil(size / 3), size);
+    });
+  } else if (surface === 'DECOR_STAND') {
+    TRICOLORE.forEach((col, i) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(0, Math.round((i * size) / 3), size, Math.ceil(size / 3));
+    });
   } else {
     // subtle per-pixel noise so it isn't dead flat
     const [r, g, b] = hexRgb(hex);
@@ -56,7 +74,7 @@ function drawTexture(surface: string, hex: string): string {
 }
 
 // One placeholder PNG per surface present in the track, coloured from the theme.
-export function genTextures(built: BuiltTrack, pal: Palette): TexFile[] {
+export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme): TexFile[] {
   const seen = new Set<string>();
   const out: TexFile[] = [];
   for (const m of built.meshes) {
@@ -67,7 +85,7 @@ export function genTextures(built: BuiltTrack, pal: Palette): TexFile[] {
       path: `texture/${name}`,
       name,
       surface: m.name,
-      bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal))),
+      bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal), theme)),
     });
   }
   return out;

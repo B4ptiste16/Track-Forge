@@ -36,6 +36,7 @@ Folder/file names must stay **lowercase, no spaces, no special characters** — 
 The mesh in \`${slug}.fbx\` is already correct: 1:1 scale, normals up, one surface keyword
 per object (${surfaces}), a coloured material assigned to every mesh, and the \`AC_*\`
 spawn/timing objects oriented (+Z = travel, +Y = up, scale 1, ~1 m above the surface).
+${built.meshes.some((m) => m.name.startsWith('DECOR')) ? '\n`DECOR_*` meshes (flag, grandstands, arch) are **visual-only** — no surface prefix, so AC gives them no collision.\n' : ''}
 
 ---
 

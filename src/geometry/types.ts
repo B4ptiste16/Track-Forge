@@ -24,10 +24,13 @@ export interface SegmentSpan {
 }
 
 // A baked mesh: vertices + triangle faces. Faces are wound so normals point up.
+// `colors` (optional, per-vertex RGB 0..1) drives striped/painted previews; the
+// in-game look comes from the exported textures instead.
 export interface MeshData {
   name: string; // exactly one AC surface keyword: 1ROAD / 1KERB / 1GRASS
   vertices: Vec3[];
   faces: [number, number, number][];
+  colors?: Vec3[];
 }
 
 // A spawn/timing object, exported as a Blender empty.
