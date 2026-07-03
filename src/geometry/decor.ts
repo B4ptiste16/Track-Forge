@@ -1,20 +1,28 @@
-import type { TrackProject } from '../types';
+import type { TrackProject, Theme } from '../types';
 import type { CenterlineSample, SegmentSpan, MeshData, Vec3 } from './types';
 import { perpLeft, offsetPoint } from './frames';
 import { addQuadUp, addQuadToward } from './meshbuilder';
 import { hex01 } from './kerbs';
 import type { ResolvedSample } from './runoff';
 
-// France-theme decorations: a giant tricolore at turn 1, grandstands on the
-// main straight + turn 1 outside, and a tricolor arch over start/finish.
-// All DECOR_* meshes are visual-only in AC (no surface prefix = no collision).
-// Vertex colours drive the in-app preview; UVs + the exported textures drive
-// the in-game look (DECOR_FLAG/ARCH/STAND textures are tricolor bands along U).
+// Decorations: grandstands on the main straight + turn 1 outside (every
+// theme), plus — France only — a giant tricolore at turn 1 and a tricolor
+// arch over start/finish. All DECOR_* meshes are visual-only in AC (no surface
+// prefix = no collision). Vertex colours drive the in-app preview; UVs + the
+// exported textures drive the in-game look.
 
 const BLEU = hex01('#0055A4');
 const BLANC = hex01('#f2f2f2');
 const ROUGE = hex01('#EF4135');
 const TRICOLORE: Vec3[] = [BLEU, BLANC, ROUGE];
+
+// Grandstand seat colour blocks per theme (France = the tricolore).
+export const SEAT_PATTERNS: Record<Theme, string[]> = {
+  tarmac_day: ['#2f5fa8', '#c9cdd4', '#b03a3a'],
+  tarmac_dusk: ['#24477e', '#8f939c', '#8c2f2f'],
+  desert: ['#a8552f', '#d8cfc0', '#4a6a8a'],
+  france: ['#0055A4', '#f2f2f2', '#EF4135'],
+};
 
 function mesh(name: string): MeshData {
   return { name, vertices: [], faces: [], colors: [], uvs: [] };
@@ -64,14 +72,15 @@ function buildStand(
   idx: number[],
   side: 'left' | 'right',
   off0: number,
+  seats: Vec3[],
 ): void {
   const STEPS = 7;
   const DEPTH = 1.6; // per step (m)
   const RISE = 0.9; // per step (m)
-  const BAND = 18; // metres per full tricolore cycle along the stand
+  const BAND = 18; // metres per full seat-colour cycle along the stand
   const sign = side === 'left' ? 1 : -1;
   const at = (i: number, off: number): Vec3 => offsetPoint(samples[i], off * sign);
-  const colAt = (i: number): Vec3 => TRICOLORE[Math.floor(samples[i].dist / 6) % 3];
+  const colAt = (i: number): Vec3 => seats[Math.floor(samples[i].dist / 6) % seats.length];
 
   for (let n = 0; n < idx.length - 1; n++) {
     const i = idx[n], j = idx[n + 1];
@@ -112,7 +121,9 @@ export function buildDecor(
   width: number,
   resolved: ResolvedSample[],
 ): MeshData[] {
-  if (project.meta.theme !== 'france' || samples.length < 2) return [];
+  if (samples.length < 2) return [];
+  const isFrance = project.meta.theme === 'france';
+  const seats = (SEAT_PATTERNS[project.meta.theme] ?? SEAT_PATTERNS.tarmac_day).map(hex01);
   const pole = mesh('DECOR_POLE');
   const flag = mesh('DECOR_FLAG');
   const stand = mesh('DECOR_STAND');
@@ -127,9 +138,9 @@ export function buildDecor(
   const clearOff = (i: number, side: 'left' | 'right') =>
     width / 2 + Math.max(8, resolved[i][side].width) + 3;
 
-  // --- Giant tricolore at turn 1 (outside, mid-corner) --------------------
+  // --- Giant tricolore at turn 1 (outside, mid-corner; France only) --------
   const t1 = spans.find((s) => s.kind === 'corner');
-  if (t1) {
+  if (t1 && isFrance) {
     const idx = idxOfSpan(t1);
     if (idx.length >= 2) {
       const mid = idx[Math.floor(idx.length / 2)];
@@ -169,7 +180,7 @@ export function buildDecor(
       const sub = idx.filter((i) => samples[i].dist >= d0 && samples[i].dist <= d1);
       if (sub.length >= 2) {
         const mid = sub[Math.floor(sub.length / 2)];
-        buildStand(stand, frame, samples, sub, side, clearOff(mid, side));
+        buildStand(stand, frame, samples, sub, side, clearOff(mid, side), seats);
       }
     }
   }
@@ -178,31 +189,33 @@ export function buildDecor(
     if (idx.length >= 4) {
       const outside: 'left' | 'right' = t1.dir === 'left' ? 'right' : 'left';
       const mid = idx[Math.floor(idx.length / 2)];
-      buildStand(stand, frame, samples, idx, outside, clearOff(mid, outside) + 9);
+      buildStand(stand, frame, samples, idx, outside, clearOff(mid, outside) + 9, seats);
     }
   }
 
-  // --- Tricolor arch over start/finish -------------------------------------
-  let sf = 0;
-  let bd = Infinity;
-  for (let i = 0; i < samples.length; i++) {
-    const d = Math.abs(samples[i].dist - project.startFinishDist);
-    if (d < bd) { bd = d; sf = i; }
-  }
-  const s = samples[sf];
-  const pl = offsetPoint(s, width / 2 + 2.2);
-  const pr = offsetPoint(s, -(width / 2 + 2.2));
-  const H = 7, BANNER = 1.6;
-  paintBox(pole, pl[0], pl[1], pl[2], pl[2] + H, 0.35, [0.85, 0.86, 0.88]);
-  paintBox(pole, pr[0], pr[1], pr[2], pr[2] + H, 0.35, [0.85, 0.86, 0.88]);
-  const zTop = Math.max(pl[2], pr[2]) + H;
-  const fwd: Vec3 = [Math.cos(s.heading), Math.sin(s.heading), 0];
-  for (let b3 = 0; b3 < 3; b3++) {
-    const t0 = b3 / 3, t1b = (b3 + 1) / 3;
-    const a: Vec3 = [pl[0] + (pr[0] - pl[0]) * t0, pl[1] + (pr[1] - pl[1]) * t0, 0];
-    const b: Vec3 = [pl[0] + (pr[0] - pl[0]) * t1b, pl[1] + (pr[1] - pl[1]) * t1b, 0];
-    paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[b3], fwd, [t0, t1b]);
-    paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[2 - b3], [-fwd[0], -fwd[1], 0], [1 - t0, 1 - t1b]);
+  // --- Tricolor arch over start/finish (France only) -----------------------
+  if (isFrance) {
+    let sf = 0;
+    let bd = Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const d = Math.abs(samples[i].dist - project.startFinishDist);
+      if (d < bd) { bd = d; sf = i; }
+    }
+    const s = samples[sf];
+    const pl = offsetPoint(s, width / 2 + 2.2);
+    const pr = offsetPoint(s, -(width / 2 + 2.2));
+    const H = 7, BANNER = 1.6;
+    paintBox(pole, pl[0], pl[1], pl[2], pl[2] + H, 0.35, [0.85, 0.86, 0.88]);
+    paintBox(pole, pr[0], pr[1], pr[2], pr[2] + H, 0.35, [0.85, 0.86, 0.88]);
+    const zTop = Math.max(pl[2], pr[2]) + H;
+    const fwd: Vec3 = [Math.cos(s.heading), Math.sin(s.heading), 0];
+    for (let b3 = 0; b3 < 3; b3++) {
+      const t0 = b3 / 3, t1b = (b3 + 1) / 3;
+      const a: Vec3 = [pl[0] + (pr[0] - pl[0]) * t0, pl[1] + (pr[1] - pl[1]) * t0, 0];
+      const b: Vec3 = [pl[0] + (pr[0] - pl[0]) * t1b, pl[1] + (pr[1] - pl[1]) * t1b, 0];
+      paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[b3], fwd, [t0, t1b]);
+      paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[2 - b3], [-fwd[0], -fwd[1], 0], [1 - t0, 1 - t1b]);
+    }
   }
 
   return [pole, flag, stand, frame, arch].filter((m) => m.faces.length > 0);

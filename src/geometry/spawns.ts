@@ -1,5 +1,6 @@
 import type { TrackProject } from '../types';
 import type { CenterlineSample, EmptyData, Vec3 } from './types';
+import { pitZone } from './pitlane';
 
 const HEIGHT_ABOVE = 1.0; // m above the surface
 
@@ -93,20 +94,29 @@ export function buildEmpties(
     out.push(makeEmpty(`AC_START_${i}`, frameAtDist(samples, dist), lateral));
   }
 
-  // Pit boxes. If a pit lane exists, place them on it (offset to the lane side);
-  // otherwise single file behind the grid, still on the racing surface.
+  // Pit boxes. With a paddock, boxes sit on it in rows (track-day style);
+  // otherwise they line up on the pit lane inside the full-width zone.
   if (project.pit.enabled) {
     const sign = project.pit.side === 'left' ? 1 : -1;
-    const lateral = sign * (w / 2 + project.pit.width * 0.5);
-    const laneStart = Math.min(project.pit.entry, project.pit.exit);
-    const laneEnd = Math.max(project.pit.entry, project.pit.exit);
-    // Keep boxes a little inside the lane ends.
-    const a = laneStart + 6;
-    const b = laneEnd - 6;
-    const span = Math.max(1, b - a);
-    for (let i = 0; i < pits; i++) {
-      const dist = pits > 1 ? a + (span * i) / (pits - 1) : a + span / 2;
-      out.push(makeEmpty(`AC_PIT_${i}`, frameAtDist(samples, dist), lateral));
+    const total = samples[samples.length - 1].dist;
+    const z = pitZone(project, total);
+    const a = z.boxA + 4;
+    const b = Math.max(a + 1, z.boxB - 4);
+    const span = b - a;
+    if (project.pit.paddock ?? true) {
+      const perRow = Math.max(1, Math.floor(span / 8));
+      for (let i = 0; i < pits; i++) {
+        const row = Math.floor(i / perRow);
+        const dist = a + (i % perRow) * 8;
+        const lateral = sign * (w / 2 + project.pit.width + 4 + row * 7);
+        out.push(makeEmpty(`AC_PIT_${i}`, frameAtDist(samples, dist), lateral));
+      }
+    } else {
+      const lateral = sign * (w / 2 + project.pit.width * 0.5);
+      for (let i = 0; i < pits; i++) {
+        const dist = pits > 1 ? a + (span * i) / (pits - 1) : a + span / 2;
+        out.push(makeEmpty(`AC_PIT_${i}`, frameAtDist(samples, dist), lateral));
+      }
     }
   } else {
     const startRows = Math.max(1, Math.ceil(starts / 2));

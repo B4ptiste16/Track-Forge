@@ -152,6 +152,10 @@ export function InputsPanel({ project, built, onChange }: Props) {
               <input type="range" min={0} max={total} step={1} value={project.pit.limitTo}
                 onChange={(e) => pit({ limitTo: Number(e.target.value) })} />
             </label>
+            <label className="checkbox">
+              <input type="checkbox" checked={project.pit.paddock ?? true} onChange={(e) => pit({ paddock: e.target.checked })} />
+              Paddock beside the lane (pit boxes / track-day spawns sit on it)
+            </label>
             <p className="muted">Entry/exit set the pit-lane geometry. The speed-limit zone is saved with the project; AC enforces it via the pit AI spline (pit_lane.ai), which the exporter will generate in a later step.</p>
           </>
         )}
@@ -170,9 +174,11 @@ export function InputsPanel({ project, built, onChange }: Props) {
                 onChange={(e) => walls({ height: Number(e.target.value) })} /> m
             </label>
             <label>Style
-              <select value={project.walls.style} onChange={(e) => walls({ style: e.target.value as 'solid' | 'blocks' })}>
-                <option value="solid">Solid wall</option>
-                <option value="blocks">Tyre / poly blocks</option>
+              <select value={project.walls.style} onChange={(e) => walls({ style: e.target.value as TrackProject['walls']['style'] })}>
+                <option value="solid">Concrete wall</option>
+                <option value="armco">Armco guardrail</option>
+                <option value="tecpro">TecPro barrier</option>
+                <option value="blocks">Tyre stacks</option>
               </select>
             </label>
           </>

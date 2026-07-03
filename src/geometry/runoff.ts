@@ -234,6 +234,14 @@ function slopeLimit(offsets: number[], dists: number[], maxSlope: number, closed
 
 const MAX_OFFSET_SLOPE = 0.4; // m of offset change per m along the track
 
+// A rectangular corridor (escape road) where auto walls must not be built.
+export interface WallFreeCorridor {
+  origin: [number, number];
+  dir: [number, number];
+  len: number;
+  halfW: number;
+}
+
 // Build the runoff aprons (grouped by surface) and the barrier walls (1WALL).
 export function buildRunoff(
   samples: CenterlineSample[],
@@ -245,6 +253,7 @@ export function buildRunoff(
   walls: WallConfig,
   closed: boolean,
   wallGaps: WallGap[] = [],
+  wallFree: WallFreeCorridor[] = [],
 ): MeshData[] {
   const surfaces = new Map<string, MeshData>();
   const getSurface = (name: string): MeshData => {
@@ -252,10 +261,17 @@ export function buildRunoff(
     if (!m) { m = { name, vertices: [], faces: [] }; surfaces.set(name, m); }
     return m;
   };
-  const wall: MeshData = { name: '1WALL', vertices: [], faces: [] };
+  const wall: MeshData = { name: '1WALL', vertices: [], faces: [], uvs: [] };
 
   const dists = samples.map((s) => s.dist);
   const inGap = (d: number) => wallGaps.some((g) => d >= Math.min(g.from, g.to) && d <= Math.max(g.from, g.to));
+  const inCorridor = (p: Vec3) =>
+    wallFree.some((c) => {
+      const rx = p[0] - c.origin[0], ry = p[1] - c.origin[1];
+      const t = rx * c.dir[0] + ry * c.dir[1];
+      if (t < -3 || t > c.len) return false;
+      return Math.abs(-c.dir[1] * rx + c.dir[0] * ry) <= c.halfW;
+    });
   const innerAt = (i: number, side: 'left' | 'right') => innerOffsets[i][side];
 
   // Pre-compute the outer offset per side, then slope-limit it so the barrier
@@ -296,16 +312,22 @@ export function buildRunoff(
         mesh.vertices.push(edgePt(i + 1, side, outerAt(i + 1, side)));
         addQuadUp(mesh.vertices, mesh.faces, base, base + 1, base + 3, base + 2);
       }
-      // Wall along the clamped outer edge (skipped inside a removed gap).
+      // Wall along the clamped outer edge (skipped inside a removed gap or an
+      // escape-road corridor).
       const gapped = inGap(samples[i].dist) || inGap(samples[i + 1].dist);
       if (walls.enabled && !gapped && resolved[i][side].wall && resolved[i + 1][side].wall) {
         const oA = edgePt(i, side, outerAt(i, side));
         const oB = edgePt(i + 1, side, outerAt(i + 1, side));
+        if (inCorridor(oA) || inCorridor(oB)) continue;
         const [plx, ply] = perpLeft(samples[i].heading);
         const inwardSign = side === 'left' ? -1 : 1; // toward the track
         const inward: Vec3 = [plx * inwardSign, ply * inwardSign, 0];
-        if (walls.style === 'blocks') emitWallBox(wall, oA, oB, inward, walls.height);
-        else emitWallStrip(wall, oA, oB, inward, walls.height);
+        const uA = samples[i].dist / 3, uB = samples[i + 1].dist / 3;
+        if (walls.style === 'blocks' || walls.style === 'tecpro') {
+          emitWallBox(wall, oA, oB, inward, walls.height, walls.style === 'tecpro' ? 1.0 : BLOCK_THICK, uA, uB);
+        } else {
+          emitWallStrip(wall, oA, oB, inward, walls.height, uA, uB);
+        }
       }
     }
   }
@@ -327,7 +349,7 @@ export function buildManualWalls(
   samples: CenterlineSample[],
   height: number,
 ): MeshData {
-  const mesh: MeshData = { name: '1WALL', vertices: [], faces: [] };
+  const mesh: MeshData = { name: '1WALL', vertices: [], faces: [], uvs: [] };
   const zAt = (x: number, y: number): number => {
     let bz = 0, bd = Infinity;
     for (const s of samples) {
@@ -338,51 +360,53 @@ export function buildManualWalls(
     return bz;
   };
   for (const w of walls) {
+    let run = 0;
     for (let i = 0; i < w.points.length - 1; i++) {
       const ax = w.points[i][0], ay = w.points[i][1];
       const bx = w.points[i + 1][0], by = w.points[i + 1][1];
       const oA: Vec3 = [ax, ay, zAt(ax, ay)];
       const oB: Vec3 = [bx, by, zAt(bx, by)];
-      const dx = bx - ax, dy = by - ay;
-      const nlen = Math.hypot(dx, dy) || 1;
-      const nrm: Vec3 = [-dy / nlen, dx / nlen, 0];
-      emitWallBoxFacing(mesh, oA, oB, nrm, height);
+      const seg = Math.hypot(bx - ax, by - ay);
+      emitWallBoxFacing(mesh, oA, oB, height, run / 3, (run + seg) / 3);
+      run += seg;
     }
   }
   return mesh;
 }
 
 // A thin double-faced wall segment (manual walls have no inherent inside).
-function emitWallBoxFacing(wall: MeshData, oA: Vec3, oB: Vec3, nrm: Vec3, h: number): void {
+function emitWallBoxFacing(wall: MeshData, oA: Vec3, oB: Vec3, h: number, uA: number, uB: number): void {
   const base = wall.vertices.length;
   wall.vertices.push([oA[0], oA[1], oA[2]]);
   wall.vertices.push([oA[0], oA[1], oA[2] + h]);
   wall.vertices.push([oB[0], oB[1], oB[2]]);
   wall.vertices.push([oB[0], oB[1], oB[2] + h]);
+  wall.uvs!.push([uA, 0], [uA, 1], [uB, 0], [uB, 1]);
   // two faces, opposite windings, so it's visible from both sides
   wall.faces.push([base, base + 1, base + 3]);
   wall.faces.push([base, base + 3, base + 2]);
   wall.faces.push([base, base + 3, base + 1]);
   wall.faces.push([base, base + 2, base + 3]);
-  void nrm;
 }
 
 // Thin continuous barrier: one inward-facing vertical quad per segment.
-function emitWallStrip(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number): void {
+// UVs: u runs along the barrier, v bottom->top (so rails/bands land right).
+function emitWallStrip(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, uA: number, uB: number): void {
   const base = wall.vertices.length;
   wall.vertices.push([oA[0], oA[1], oA[2]]);
   wall.vertices.push([oA[0], oA[1], oA[2] + h]);
   wall.vertices.push([oB[0], oB[1], oB[2]]);
   wall.vertices.push([oB[0], oB[1], oB[2] + h]);
+  wall.uvs!.push([uA, 0], [uA, 1], [uB, 0], [uB, 1]);
   addQuadToward(wall.vertices, wall.faces, base, base + 1, base + 3, base + 2, inward);
 }
 
-// Chunky tyre/polystyrene barrier: a contiguous box (thickness + top) per
-// segment, so it reads as a row of blocks. Still gapless for collision.
+// Chunky barrier (tyre/poly blocks, TecPro): a contiguous box (thickness +
+// top) per segment, so it reads as a row of blocks. Still gapless for collision.
 const BLOCK_THICK = 0.7;
-function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number): void {
+function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number, uA: number, uB: number): void {
   const base = wall.vertices.length;
-  const t: Vec3 = [inward[0] * BLOCK_THICK, inward[1] * BLOCK_THICK, 0];
+  const t: Vec3 = [inward[0] * thick, inward[1] * thick, 0];
   // bottom: 0=a0 1=a1 2=b0 3=b1 ; top: 4=a0h 5=a1h 6=b0h 7=b1h
   wall.vertices.push([oA[0], oA[1], oA[2]]);
   wall.vertices.push([oA[0] + t[0], oA[1] + t[1], oA[2]]);
@@ -392,6 +416,7 @@ function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number
   wall.vertices.push([oA[0] + t[0], oA[1] + t[1], oA[2] + h]);
   wall.vertices.push([oB[0], oB[1], oB[2] + h]);
   wall.vertices.push([oB[0] + t[0], oB[1] + t[1], oB[2] + h]);
+  wall.uvs!.push([uA, 0], [uA, 0], [uB, 0], [uB, 0], [uA, 1], [uA, 1], [uB, 1], [uB, 1]);
   const out: Vec3 = [-inward[0], -inward[1], 0];
   addQuadToward(wall.vertices, wall.faces, base + 0, base + 4, base + 6, base + 2, out); // track-facing
   addQuadToward(wall.vertices, wall.faces, base + 1, base + 5, base + 7, base + 3, inward); // back

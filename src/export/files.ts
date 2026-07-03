@@ -21,7 +21,7 @@ export interface TrackFile {
 export function buildFileMap(project: TrackProject): { slug: string; files: TrackFile[] } {
   const slug = slugify(project.meta.name);
   const built = buildTrack(project);
-  const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme);
+  const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme, project.walls.style);
   const fbxText = genFbx(project, built);
 
   const files: TrackFile[] = [

@@ -35,6 +35,9 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === '1PIT') return pal.pit;
   if (name === '1SAND') return pal.sand;
   if (name === '1CONCRETE') return pal.concrete;
+  if (name === 'ROAD_LINE') return '#eef0f2';
+  if (name === '1WALLPOLY') return '#e8d24a';
+  if (name === 'DECOR_BOLLARD') return '#ff7a1a';
   if (name === 'DECOR_POLE') return '#9ea3aa';
   if (name === 'DECOR_FLAG') return '#0055A4';
   if (name === 'DECOR_STAND') return '#5f646b';
@@ -42,6 +45,13 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_ARCH') return '#f2f2f2';
   return '#808080';
 }
+
+// Preview colour of the 1WALL barrier per wall style.
+export const WALL_STYLE_COLORS: Record<string, string> = {
+  tecpro: '#c8322e',
+  blocks: '#33363b',
+  armco: '#a7adb5',
+};
 
 // A small closed oval — a working starting point that already passes closure.
 // straight(200) + 180° left + straight(200) + 180° left  => returns to origin.
@@ -68,7 +78,7 @@ export function defaultProject(): TrackProject {
     corners: syncCorners(segments, [], 'flat'),
     startFinishDist: 100,
     grid: { pits: 2, starts: 2 },
-    pit: { enabled: true, side: 'right', width: 8, entry: 0, exit: 95, limitFrom: 0, limitTo: 100 },
+    pit: { enabled: true, side: 'right', width: 8, entry: 0, exit: 95, limitFrom: 0, limitTo: 100, paddock: true },
     walls: { enabled: true, height: 1.2, style: 'solid' },
     bridge: { auto: true, incline: 0.05, clearance: 7 },
     runoffDefault: { type: 'grass', dist: 14, wall: true },
@@ -105,6 +115,7 @@ export function withDefaults(p: TrackProject): TrackProject {
       limitFrom: Math.max(0, sf - oldLen), limitTo: sf,
     };
   }
+  if (pit && pit.paddock === undefined) pit = { ...pit, paddock: true };
   return {
     ...p,
     pit,

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { TrackProject } from '../types';
 import type { BuiltTrack, MeshData } from '../geometry';
-import { THEME_PALETTES, meshColor } from '../state/project';
+import { THEME_PALETTES, WALL_STYLE_COLORS, meshColor } from '../state/project';
 
 function toGeometry(mesh: MeshData): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
@@ -169,8 +169,12 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
       if (mesh.faces.length === 0) continue;
       const side = mesh.name === '1WALL' || mesh.name.startsWith('DECOR') ? THREE.DoubleSide : THREE.FrontSide;
       const vc = !!mesh.colors && mesh.colors.length === mesh.vertices.length;
+      const baseColor =
+        mesh.name === '1WALL'
+          ? (WALL_STYLE_COLORS[project.walls.style] ?? pal.wall)
+          : meshColor(mesh.name, pal);
       const mat = new THREE.MeshStandardMaterial({
-        color: vc ? '#ffffff' : meshColor(mesh.name, pal),
+        color: vc ? '#ffffff' : baseColor,
         vertexColors: vc,
         roughness: 0.95,
         side,

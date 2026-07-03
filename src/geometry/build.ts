@@ -4,16 +4,28 @@ import { buildCenterline, computeClosure } from './centerline';
 import { makeHeightFn } from './elevation';
 import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
+import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
-import { computePitInfo, buildPitLane } from './pitlane';
+import { computePitInfo, buildPitLane, buildPaddock, pitZone } from './pitlane';
 import {
   buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
   type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
 } from './runoff';
+import { buildEscapes } from './escape';
 import { buildDecor } from './decor';
 import { buildEmpties } from './spawns';
 
-const ESCAPE_WIDTH = 35; // m paved escape road on the outside of a corner
+// Append src's geometry into target (same mesh name). Keeps UVs only when both
+// sides have them; otherwise the planar fallback recomputes for the whole mesh.
+function mergeInto(target: MeshData, src: MeshData): void {
+  if (!src.faces.length) return;
+  const canKeepUvs = !!target.uvs && !!src.uvs;
+  const b = target.vertices.length;
+  src.vertices.forEach((v) => target.vertices.push(v));
+  src.faces.forEach((f) => target.faces.push([f[0] + b, f[1] + b, f[2] + b]));
+  if (canKeepUvs) src.uvs!.forEach((u) => target.uvs!.push(u));
+  else delete target.uvs;
+}
 
 export function buildTrack(project: TrackProject): BuiltTrack {
   const width = project.road.width;
@@ -81,7 +93,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const corner = segCorner.get(segIndex);
     const outside = corner ? (corner.dir === 'left' ? 'right' : 'left') : null;
     if (corner?.escape && side === outside) {
-      return { surface: '1CONCRETE', width: Math.max(base.dist, ESCAPE_WIDTH), wall: false };
+      // Monza-style escape road is built separately; keep the outside apron
+      // but never wall it off (the corridor check also protects neighbours).
+      return { surface: runoffSurfaceName(base.type === 'wall' ? 'grass' : base.type), width: base.dist, wall: false };
     }
     if (corner && side === corner.dir) {
       // Inside of a corner: covered by the concentric infield fill instead of
@@ -110,9 +124,26 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     : samples.map(() => Infinity);
 
   const road = buildRoad(samples, width);
+  const lines = buildRoadLines(samples, width);
   const pit = buildPitLane(samples, pitInfo, width);
   const kerb = buildKerbs(samples, kerbInfo, width, KERB_PATTERNS[project.meta.theme] ?? KERB_PATTERNS.tarmac_day);
-  const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps);
+
+  // Monza-style escape roads (per-corner `escape`): straight tarmac + sausage
+  // separator + poly blocks + bollards; walls stay out of their corridors.
+  const esc = buildEscapes(samples, spans, segsClamped, project.corners, width);
+  mergeInto(road, esc.road);
+  mergeInto(kerb.hi, esc.kerbHi);
+
+  // Paddock beside the pit lane, deep enough for however many box rows.
+  if (project.pit.enabled && (project.pit.paddock ?? true)) {
+    const z = pitZone(project, totalLength);
+    const span = Math.max(1, z.boxB - 4 - (z.boxA + 4));
+    const perRow = Math.max(1, Math.floor(span / 8));
+    const rows = Math.ceil(project.grid.pits / perRow);
+    mergeInto(pit, buildPaddock(samples, project, width, 8 + rows * 7));
+  }
+
+  const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors);
 
   // Clean infield fill on the inside of every corner (surface per corner config).
   const fills: CornerFill[] = [];
@@ -132,13 +163,8 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   }
   for (const fm of buildCornerFill(samples, width, fills)) {
     const target = runoffMeshes.find((m) => m.name === fm.name);
-    if (target) {
-      const b = target.vertices.length;
-      fm.vertices.forEach((v) => target.vertices.push(v));
-      fm.faces.forEach((f) => target.faces.push([f[0] + b, f[1] + b, f[2] + b]));
-    } else {
-      runoffMeshes.push(fm);
-    }
+    if (target) mergeInto(target, fm);
+    else runoffMeshes.push(fm);
   }
 
   // Hand-drawn barriers merge into the 1WALL mesh.
@@ -146,13 +172,8 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const manual = buildManualWalls(project.manualWalls, samples, project.walls.height);
     if (manual.faces.length) {
       const wallMesh = runoffMeshes.find((m) => m.name === '1WALL');
-      if (wallMesh) {
-        const b = wallMesh.vertices.length;
-        manual.vertices.forEach((v) => wallMesh.vertices.push(v));
-        manual.faces.forEach((f) => wallMesh.faces.push([f[0] + b, f[1] + b, f[2] + b]));
-      } else {
-        runoffMeshes.push(manual);
-      }
+      if (wallMesh) mergeInto(wallMesh, manual);
+      else runoffMeshes.push(manual);
     }
   }
 
@@ -161,22 +182,19 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const ground = buildGroundPlane(samples);
   if (ground.faces.length) {
     const grassMesh = runoffMeshes.find((m) => m.name === '1GRASS');
-    if (grassMesh) {
-      const b = grassMesh.vertices.length;
-      ground.vertices.forEach((v) => grassMesh.vertices.push(v));
-      ground.faces.forEach((f) => grassMesh.faces.push([f[0] + b, f[1] + b, f[2] + b]));
-    } else {
-      runoffMeshes.unshift(ground);
-    }
+    if (grassMesh) mergeInto(grassMesh, ground);
+    else runoffMeshes.unshift(ground);
   }
 
   const empties = buildEmpties(samples, project);
   const decor = buildDecor(project, samples, spans, width, resolved);
 
-  // Draw/export order: aprons first, then road/pit/kerbs, walls, then decor.
+  // Draw/export order: aprons first, then road/pit/lines/kerbs, walls, decor.
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
-  const meshes: MeshData[] = [...aprons, road, pit, kerb.base, kerb.hi, ...wallMesh, ...decor].filter((m) => m.faces.length > 0);
+  const meshes: MeshData[] = [
+    ...aprons, road, pit, lines, kerb.base, kerb.hi, ...wallMesh, esc.poly, esc.bollards, ...decor,
+  ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own
   // (road, aprons, walls…) gets planar world mapping — one tile per 6 m.

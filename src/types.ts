@@ -55,12 +55,14 @@ export interface PitConfig {
   exit: number; // distance along the lap where the pit lane ends (m)
   limitFrom: number; // distance where the pit speed limit starts (m)
   limitTo: number; // distance where the pit speed limit ends (m)
+  paddock?: boolean; // paved paddock beside the lane; pit boxes sit on it (track-day spawns)
 }
 
+export type WallStyle = 'solid' | 'armco' | 'tecpro' | 'blocks';
 export interface WallConfig {
   enabled: boolean; // master switch for all barriers
   height: number; // wall height (m)
-  style: 'solid' | 'blocks'; // continuous wall vs polystyrene/tyre blocks
+  style: WallStyle; // concrete / metal guardrail / TecPro / tyre-poly blocks
 }
 
 export interface BridgeConfig {

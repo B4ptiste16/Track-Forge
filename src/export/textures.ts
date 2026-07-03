@@ -1,7 +1,8 @@
 import type { BuiltTrack } from '../geometry';
-import type { Theme } from '../types';
+import type { Theme, WallStyle } from '../types';
 import { meshColor, type Palette } from '../state/project';
 import { KERB_PATTERNS } from '../geometry/kerbs';
+import { SEAT_PATTERNS } from '../geometry/decor';
 
 export interface TexFile {
   path: string; // e.g. road.png (beside the fbx, where KsEditor looks)
@@ -64,7 +65,7 @@ function bandsAcross(ctx: CanvasRenderingContext2D, colors: string[]): void {
 
 // Draw the texture for one surface. Rich enough to read as a material in-game;
 // the UVs exported in the FBX make stripes/bands land where they should.
-function drawTexture(surface: string, hex: string, theme: Theme): string {
+function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
   const ctx = c.getContext('2d')!;
@@ -128,10 +129,63 @@ function drawTexture(surface: string, hex: string, theme: Theme): string {
       break;
     }
     case '1WALL': {
+      // v runs bottom (y=SIZE) -> top (y=0) on wall quads.
+      if (wallStyle === 'tecpro') {
+        ctx.fillStyle = '#c8322e';
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        ctx.fillStyle = '#e9eaec'; // white top band
+        ctx.fillRect(0, 0, SIZE, Math.round(SIZE * 0.28));
+        grain(ctx, 5);
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; // block joints
+        for (let x = 0; x < SIZE; x += 48) ctx.fillRect(x, 0, 3, SIZE);
+      } else if (wallStyle === 'armco') {
+        ctx.fillStyle = '#9aa0a8';
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        grain(ctx, 6);
+        // two corrugated rails
+        for (const yc of [SIZE * 0.30, SIZE * 0.66]) {
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.fillRect(0, yc - 14, SIZE, 10);
+          ctx.fillStyle = 'rgba(0,0,0,0.30)';
+          ctx.fillRect(0, yc + 2, SIZE, 6);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; // posts
+        for (let x = 16; x < SIZE; x += 64) ctx.fillRect(x, 0, 5, SIZE);
+      } else if (wallStyle === 'blocks') {
+        ctx.fillStyle = '#2c2e33'; // tyre stacks
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        grain(ctx, 7);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 3;
+        for (let y = 16; y < SIZE; y += 32) {
+          for (let x = 16; x < SIZE + 16; x += 32) {
+            ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+      } else {
+        grain(ctx, 6);
+        ctx.fillStyle = 'rgba(0,0,0,0.16)'; // concrete segment joints
+        for (let x = 0; x < SIZE; x += 64) ctx.fillRect(x, 0, 2, SIZE);
+        ctx.fillRect(0, 150, SIZE, 3);
+      }
+      break;
+    }
+    case '1WALLPOLY': { // yellow polystyrene escape-road blocks
+      grain(ctx, 8);
+      ctx.fillStyle = 'rgba(0,0,0,0.20)'; // block joints
+      for (let x = 0; x < SIZE; x += 56) ctx.fillRect(x, 0, 3, SIZE);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(0, 0, SIZE, 10);
+      break;
+    }
+    case 'ROAD_LINE': {
+      grain(ctx, 5);
+      break;
+    }
+    case 'DECOR_BOLLARD': {
       grain(ctx, 6);
-      ctx.fillStyle = 'rgba(0,0,0,0.16)'; // barrier segment joints
-      for (let x = 0; x < SIZE; x += 64) ctx.fillRect(x, 0, 2, SIZE);
-      ctx.fillRect(0, 150, SIZE, 3); // horizontal rail shadow
+      ctx.fillStyle = 'rgba(255,255,255,0.65)'; // reflective band
+      ctx.fillRect(0, Math.round(SIZE * 0.22), SIZE, Math.round(SIZE * 0.12));
       break;
     }
     case 'DECOR_FLAG': {
@@ -150,7 +204,7 @@ function drawTexture(surface: string, hex: string, theme: Theme): string {
       break;
     }
     case 'DECOR_STAND': {
-      bandsAcross(ctx, TRICOLORE); // seat colour blocks along the stand
+      bandsAcross(ctx, SEAT_PATTERNS[theme] ?? SEAT_PATTERNS.tarmac_day); // seat colour blocks
       ctx.fillStyle = 'rgba(0,0,0,0.30)'; // seat rows
       for (let y = 0; y < SIZE; y += 18) ctx.fillRect(0, y, SIZE, 2);
       ctx.fillStyle = 'rgba(0,0,0,0.15)'; // seat separations
@@ -181,7 +235,7 @@ function drawTexture(surface: string, hex: string, theme: Theme): string {
 
 // One PNG per surface present in the track. Textures live NEXT TO the fbx so
 // KsEditor's persistence auto-load finds them (same layout RTB uses).
-export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme): TexFile[] {
+export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme, wallStyle: WallStyle): TexFile[] {
   const seen = new Set<string>();
   const out: TexFile[] = [];
   for (const m of built.meshes) {
@@ -192,7 +246,7 @@ export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme): TexF
       path: name,
       name,
       surface: m.name,
-      bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal), theme)),
+      bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal), theme, wallStyle)),
     });
   }
   return out;
