@@ -1,6 +1,7 @@
 import type { TrackProject } from '../types';
 import type { BuiltTrack, MeshData, Vec3, EmptyData } from '../geometry';
 import { THEME_PALETTES, meshColor } from '../state/project';
+import { textureFileName } from './textures';
 
 // ---------------------------------------------------------------------------
 // Direct ASCII FBX writer (tab-indented, FBX 7.4 — the conventional format the
@@ -74,9 +75,9 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
   const nextId = () => ++idSeq;
   const pal = THEME_PALETTES[project.meta.theme];
 
-  interface MeshNode { geomId: number; modelId: number; matId: number; mesh: MeshData; }
+  interface MeshNode { geomId: number; modelId: number; matId: number; texId: number; vidId: number; mesh: MeshData; }
   const meshNodes: MeshNode[] = built.meshes.map((m) => ({
-    geomId: nextId(), modelId: nextId(), matId: nextId(), mesh: m,
+    geomId: nextId(), modelId: nextId(), matId: nextId(), texId: nextId(), vidId: nextId(), mesh: m,
   }));
   interface NullNode { modelId: number; attrId: number; e: EmptyData; }
   const nullNodes: NullNode[] = built.empties.map((e) => ({ modelId: nextId(), attrId: nextId(), e }));
@@ -108,7 +109,7 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
   L(1, '}');
   L(0, '}');
 
-  const objectCount = meshNodes.length * 3 + nullNodes.length * 2;
+  const objectCount = meshNodes.length * 5 + nullNodes.length * 2;
   L(0, 'Definitions:  {');
   L(1, 'Version: 100');
   L(1, `Count: ${objectCount}`);
@@ -122,6 +123,12 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
   L(2, `Count: ${meshNodes.length + nullNodes.length}`);
   L(1, '}');
   L(1, 'ObjectType: "Material" {');
+  L(2, `Count: ${meshNodes.length}`);
+  L(1, '}');
+  L(1, 'ObjectType: "Texture" {');
+  L(2, `Count: ${meshNodes.length}`);
+  L(1, '}');
+  L(1, 'ObjectType: "Video" {');
   L(2, `Count: ${meshNodes.length}`);
   L(1, '}');
   L(1, 'ObjectType: "NodeAttribute" {');
@@ -228,6 +235,35 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(3, 'P: "Emissive", "Vector3D", "Vector", "",0,0,0');
     L(2, '}');
     L(1, '}');
+
+    // Texture + Video pair referencing the PNG beside the FBX — this is what
+    // makes ksEditor pre-assign txDiffuse on import (the RTB behaviour).
+    const texFile = textureFileName(mn.mesh.name);
+    L(1, `Video: ${mn.vidId}, "Video::${texFile}", "Clip" {`);
+    L(2, 'Type: "Clip"');
+    L(2, 'Properties70:  {');
+    L(3, `P: "Path", "KString", "XRefUrl", "", "${texFile}"`);
+    L(2, '}');
+    L(2, 'UseMipMap: 0');
+    L(2, `Filename: "${texFile}"`);
+    L(2, `RelativeFilename: "${texFile}"`);
+    L(1, '}');
+    L(1, `Texture: ${mn.texId}, "Texture::${texFile}", "" {`);
+    L(2, 'Type: "TextureVideoClip"');
+    L(2, 'Version: 202');
+    L(2, `TextureName: "Texture::${texFile}"`);
+    L(2, 'Properties70:  {');
+    L(3, 'P: "UVSet", "KString", "", "", "UVMap"');
+    L(3, 'P: "UseMaterial", "bool", "", "",1');
+    L(2, '}');
+    L(2, `Media: "Video::${texFile}"`);
+    L(2, `FileName: "${texFile}"`);
+    L(2, `RelativeFilename: "${texFile}"`);
+    L(2, 'ModelUVTranslation: 0,0');
+    L(2, 'ModelUVScaling: 1,1');
+    L(2, 'Texture_Alpha_Source: "None"');
+    L(2, 'Cropping: 0,0,0,0');
+    L(1, '}');
   }
 
   for (const nn of nullNodes) {
@@ -255,6 +291,8 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(1, `C: "OO",${mn.modelId},0`);
     L(1, `C: "OO",${mn.geomId},${mn.modelId}`);
     L(1, `C: "OO",${mn.matId},${mn.modelId}`);
+    L(1, `C: "OO",${mn.vidId},${mn.texId}`);
+    L(1, `C: "OP",${mn.texId},${mn.matId}, "DiffuseColor"`);
   }
   for (const nn of nullNodes) {
     L(1, `C: "OO",${nn.modelId},0`);

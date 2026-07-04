@@ -5,7 +5,7 @@ import { KERB_PATTERNS } from '../geometry/kerbs';
 import { SEAT_PATTERNS } from '../geometry/decor';
 
 export interface TexFile {
-  path: string; // e.g. road.png (beside the fbx, where KsEditor looks)
+  path: string; // e.g. texture/road.png (the subfolder KsEditor searches)
   name: string; // e.g. road.png
   surface: string; // e.g. 1ROAD
   bytes: Uint8Array;
@@ -17,6 +17,12 @@ const TRICOLORE = ['#0055A4', '#f2f2f2', '#EF4135'];
 // Short texture filename for a surface mesh name (1ROAD -> road).
 function shortName(meshName: string): string {
   return meshName.replace(/^1/, '').toLowerCase();
+}
+
+// The texture PNG that goes with a mesh — also referenced from inside the FBX
+// so ksEditor auto-assigns txDiffuse on import (the Race Track Builder way).
+export function textureFileName(meshName: string): string {
+  return `${shortName(meshName)}.png`;
 }
 
 function dataUrlToBytes(dataUrl: string): Uint8Array {
@@ -242,8 +248,10 @@ export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme, wallS
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     const name = `${shortName(m.name)}.png`;
+    // ksEditor resolves texture FILES from the `texture\` subfolder next to
+    // the FBX (verified live: root-level pngs stay NULL, texture\ loads).
     out.push({
-      path: name,
+      path: `texture/${name}`,
       name,
       surface: m.name,
       bytes: dataUrlToBytes(drawTexture(m.name, meshColor(m.name, pal), theme, wallStyle)),

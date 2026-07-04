@@ -43,12 +43,12 @@ ${built.meshes.some((m) => m.name.startsWith('DECOR')) ? '\n`DECOR_*` meshes (fl
 ## A. Compile to KN5 (KsEditor) — the only required step
 
 **Textures are pre-assigned.** The export includes \`${slug}.fbx.ini\` (a KsEditor persistence
-file, same mechanism Race Track Builder uses) plus the texture PNGs next to the FBX — KsEditor
-reads it automatically when you import the FBX, so every material arrives with
+file, same mechanism Race Track Builder uses) plus the texture PNGs in the \`texture/\` folder —
+KsEditor reads both automatically when you open the FBX, so every material arrives with
 shader ksPerPixel + txDiffuse already set.
 
-1. Open **KsEditor** (\`assettocorsa/sdk/editor/\`). **File → Import FBX** → choose \`${slug}.fbx\`.
-   Keep \`${slug}.fbx.ini\` and the \`.png\` files next to the FBX (don't rename them).
+1. Open **KsEditor** (\`assettocorsa/sdk/editor/\`). **File → Open FBX** → choose \`${slug}.fbx\`.
+   Keep \`${slug}.fbx.ini\` and the \`texture/\` folder next to the FBX (don't rename them).
    - Navigation: hold **left mouse** to look, **arrow keys** to move, **Ctrl** faster,
      **Shift** slower, **right-click** to select.
 2. **Export KN5** → name it \`${slug}.kn5\`. That's it.
