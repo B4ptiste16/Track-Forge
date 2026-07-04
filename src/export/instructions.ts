@@ -60,7 +60,7 @@ ${texMap}
 
 1. In \`assettocorsa/content/tracks/\` create a folder named \`${slug}\` (lowercase, no spaces).
 2. Put \`${slug}.kn5\` **directly inside** it.
-3. Add the provided \`ui/ui_track.json\` and \`data/surfaces.ini\`, plus an empty \`ai/\` folder.
+3. Add the provided \`ui/ui_track.json\`, \`data/surfaces.ini\` and \`ai/fast_lane.ai\`.
    Do **not** nest the track folder inside extra folders.
 
    \`\`\`
@@ -68,12 +68,12 @@ ${texMap}
      ${slug}.kn5
      ui/ui_track.json
      data/surfaces.ini
-     ai/            (empty for now)
+     ai/fast_lane.ai   (auto-generated AI racing line)
    \`\`\`
-4. **Test in Practice first.** AC → Drive → Practice → select the track. Practice only needs
-   \`AC_PIT_0\` and no AI line, so it's the cleanest first test.
-5. If it loads and you can drive without falling through — success. Then add extras (AI fast
-   lane recorded in-game, cameras) one at a time, re-testing. Logs: \`Documents/Assetto Corsa/logs/\`.
+4. **Test in Practice first.** AC → Drive → Practice → select the track.
+5. The generated \`ai/fast_lane.ai\` gives you AI opponents (Quick Race / Race Weekend) and the
+   green "ideal line" app out of the box. If the AI drives oddly, you can still record a better
+   line in-game (AI Line Helper app) — it just overwrites this file. Logs: \`Documents/Assetto Corsa/logs/\`.
 
 ## Fallback: rebuild the FBX in Blender
 

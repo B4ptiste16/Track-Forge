@@ -8,6 +8,7 @@ import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
 import { genKsPersistence } from './ksPersistence';
+import { genFastLaneAi } from './ai';
 
 // One file in the track package. Either text or binary bytes.
 export interface TrackFile {
@@ -18,11 +19,12 @@ export interface TrackFile {
 
 // Build every file that makes up the exported track. Shared by the browser
 // (zips them for download) and the desktop app (writes them straight to disk).
-export function buildFileMap(project: TrackProject): { slug: string; files: TrackFile[] } {
-  const slug = slugify(project.meta.name);
+export function buildFileMap(project: TrackProject, slugOverride?: string): { slug: string; files: TrackFile[] } {
+  const slug = slugOverride ? slugify(slugOverride) : slugify(project.meta.name);
   const built = buildTrack(project);
   const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme, project.walls.style);
   const fbxText = genFbx(project, built);
+  const aiLine = genFastLaneAi(built, project.road.width);
 
   const files: TrackFile[] = [
     { path: `${slug}.fbx`, text: fbxText },
@@ -31,7 +33,8 @@ export function buildFileMap(project: TrackProject): { slug: string; files: Trac
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
     { path: 'ui/ui_track.json', text: genUiTrack(project, built) },
     { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },
-    { path: 'ai/.gitkeep', text: '' },
+    // AI racing line — AC's opponents + the "ideal line" app work out of the box.
+    ...(aiLine.length ? [{ path: 'ai/fast_lane.ai', bytes: aiLine }] : [{ path: 'ai/.gitkeep', text: '' }]),
     { path: 'blender_fallback/build_track.py', text: genBlenderScript(project, built, slug) },
     { path: `${slug}.acforge.json`, text: JSON.stringify(project, null, 2) },
     ...textures.map((t) => ({ path: t.path, bytes: t.bytes })),

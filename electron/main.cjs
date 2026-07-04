@@ -117,6 +117,19 @@ ipcMain.handle('dialog:pickFile', async (e, filters) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
+// Save-As style picker for the track folder: the user browses anywhere and
+// types/keeps the folder name; we create `<dir>\<name>` and write into it.
+ipcMain.handle('dialog:saveTrack', async (e, { defaultPath }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Export track — choose where to save the track folder',
+    defaultPath: defaultPath || undefined,
+    buttonLabel: 'Export here',
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  });
+  return r.canceled || !r.filePath ? null : r.filePath;
+});
+
 // Write the track files under baseDir/<slug>. Returns ok + the folder + fbx path.
 ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   const root = path.join(baseDir, slug);

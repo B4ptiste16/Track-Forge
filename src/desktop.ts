@@ -13,6 +13,7 @@ export interface DesktopApi {
   setSettings(s: Record<string, string>): Promise<boolean>;
   pickFolder(): Promise<string | null>;
   pickFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
+  pickSavePath(defaultPath?: string): Promise<string | null>;
   writeTrack(
     baseDir: string,
     slug: string,

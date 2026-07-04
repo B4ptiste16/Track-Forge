@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('desktop', {
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   pickFile: (filters) => ipcRenderer.invoke('dialog:pickFile', filters),
+  pickSavePath: (defaultPath) => ipcRenderer.invoke('dialog:saveTrack', { defaultPath }),
   writeTrack: (baseDir, slug, files) => ipcRenderer.invoke('track:write', { baseDir, slug, files }),
   openInKsEditor: (ksPath, fbxPath) => ipcRenderer.invoke('kseditor:open', { ksPath, fbxPath }),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),

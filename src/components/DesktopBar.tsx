@@ -3,6 +3,7 @@ import type { TrackProject } from '../types';
 import { desktop } from '../desktop';
 import { buildFileMap } from '../export/files';
 import { serializeForDesktop } from '../export/zip';
+import { slugify } from '../state/project';
 
 interface Settings {
   acTracksPath?: string;
@@ -42,35 +43,27 @@ export function DesktopBar({ project }: { project: TrackProject }) {
   const exportFolder = async () => {
     if (!desktop) return;
     try {
-      const { slug, files } = buildFileMap(project);
-      // Always confirm the destination — a silent write straight to the saved
-      // folder looked like "nothing happened / it never asked me where".
-      let base = s.acTracksPath;
-      for (;;) {
-        if (!base) {
-          setStatus('Choose the folder to export into…');
-          base = (await desktop.pickFolder()) ?? undefined;
-          if (!base) { setStatus('Export cancelled (no folder chosen).'); return; }
-        }
-        const choice = await desktop.confirm(
-          `Export "${project.meta.name}" to:`,
-          `${base}\\${slug}\n\n${files.length} files — FBX, ${slug}.fbx.ini (auto-textures), textures, configs.`,
-          ['Export', 'Choose another folder…', 'Cancel'],
-        );
-        if (choice === 2) { setStatus('Export cancelled.'); return; }
-        if (choice === 1) { base = undefined; continue; }
-        break;
-      }
+      // Real Save-As: browse anywhere, type/keep the track-folder name.
+      const defaultName = slugify(project.meta.name);
+      const defaultPath = s.acTracksPath ? `${s.acTracksPath}\\${defaultName}` : defaultName;
+      const picked = await desktop.pickSavePath(defaultPath);
+      if (!picked) { setStatus('Export cancelled.'); return; }
+      const cut = Math.max(picked.lastIndexOf('\\'), picked.lastIndexOf('/'));
+      const baseDir = cut > 0 ? picked.slice(0, cut) : picked;
+      const slug = slugify(picked.slice(cut + 1)) || defaultName;
+
       setStatus('Writing files…');
-      const res = await desktop.writeTrack(base!, slug, serializeForDesktop(files));
+      const { files } = buildFileMap(project, slug);
+      const res = await desktop.writeTrack(baseDir, slug, serializeForDesktop(files));
       if (!res.ok) {
         setStatus('Export failed — see dialog.');
         await desktop.showMessage('error', `Could not write to:\n${res.root}\n\n${res.error}\n\nThat location may need admin rights (e.g. Steam in Program Files). Try exporting to Documents/Desktop, then copy the folder into assettocorsa\\content\\tracks.`);
         return;
       }
-      save({ ...s, acTracksPath: base, lastFbx: res.fbxPath ?? undefined, lastRoot: res.root });
+      save({ ...s, acTracksPath: baseDir, lastFbx: res.fbxPath ?? undefined, lastRoot: res.root });
       setStatus(`✓ Exported to ${res.root}`);
-      await desktop.openPath(res.root); // show the folder so it's obvious it worked
+      await desktop.showMessage('info', `Track exported to:\n${res.root}\n\n${files.length} files — FBX (+ .fbx.ini auto-textures), textures, surfaces, ui, ai/fast_lane.ai.\n\nThe folder is now open in Explorer.`);
+      await desktop.openPath(res.root);
     } catch (err) {
       setStatus('Export failed.');
       await desktop.showMessage('error', 'Export failed:\n' + String(err));
