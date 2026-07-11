@@ -33,7 +33,7 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
   // Numeric field that shows a placeholder default and stores undefined when cleared.
   const num = (
     c: CornerConfig,
-    key: 'kerbWidth' | 'entryLen' | 'apexLen' | 'exitLen',
+    key: 'kerbWidth' | 'entryLen' | 'apexLen' | 'exitLen' | 'entryW' | 'apexW' | 'exitW',
     label: string,
     placeholder: string,
     max: number,
@@ -73,25 +73,36 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
       {customize &&
         project.corners.map((c) => (
           <div key={c.cornerIndex} className="kerb-corner">
-            <div className="kerb-corner-title">T{c.cornerIndex + 1}</div>
+            <div className="kerb-corner-title">
+              T{c.cornerIndex + 1}
+              <label className="checkbox kerb-escape" title="Monza-style escape road on the outside">
+                <input type="checkbox" checked={!!c.escape}
+                  onChange={(e) => setCorner(c.cornerIndex, { escape: e.target.checked })} />
+                escape road
+              </label>
+            </div>
             <div className="kerb-parts">
-              {(['entry', 'apex', 'exit'] as Part[]).map((part) => (
+              {(
+                [
+                  ['entry', 'entryW', 'entryLen', '25'],
+                  ['apex', 'apexW', 'apexLen', '60%'],
+                  ['exit', 'exitW', 'exitLen', '30'],
+                ] as [Part, 'entryW' | 'apexW' | 'exitW', 'entryLen' | 'apexLen' | 'exitLen', string][]
+              ).map(([part, wKey, lKey, lPh]) => (
                 <div key={part} className="kerb-part">
                   <span className="kerb-part-label">{part}</span>
                   <KerbSwatch type={c[part]} kerbColor={pal.kerb} kerbHiColor={pal.kerbHi} />
                   <select value={c[part]} onChange={(e) => setPart(c.cornerIndex, part, e.target.value as KerbType)}>
                     {KERBS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
+                  {num(c, wKey, 'width m', 'auto', 6)}
+                  {num(c, lKey, 'length m', lPh, 600)}
                 </div>
               ))}
             </div>
             <div className="kerb-nums">
-              {num(c, 'kerbWidth', 'width m', 'auto', 5)}
-              {num(c, 'entryLen', 'entry m', '25', 200)}
-              {num(c, 'apexLen', 'apex m', '60%', 400)}
-              {num(c, 'exitLen', 'exit m', '30', 200)}
               <label className="kerb-num" title="Surface filling the inside of this corner">
-                <span className="kerb-part-label">inside</span>
+                <span className="kerb-part-label">inside surface</span>
                 <select
                   value={c.insideSurface ?? 'grass'}
                   onChange={(e) => setCorner(c.cornerIndex, { insideSurface: e.target.value as CornerConfig['insideSurface'] })}

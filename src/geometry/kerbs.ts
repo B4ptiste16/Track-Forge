@@ -60,12 +60,17 @@ export function computeKerbInfo(
     const len = b - a;
     const entryLen = Math.max(0, cfg?.entryLen ?? DEFAULT_ENTRY_LEN);
     const exitLen = Math.max(0, cfg?.exitLen ?? DEFAULT_EXIT_LEN);
-    const apexLen = Math.min(len, Math.max(0, cfg?.apexLen ?? len * 0.6));
-    const apexFrom = a + (len - apexLen) / 2;
-    const apexTo = apexFrom + apexLen;
-    const w = Math.max(0, cfg?.kerbWidth ?? 0);
+    // apex length is 100% free: centered mid-corner, it may extend well beyond
+    // the corner onto the neighbouring straights (still on the inside).
+    const apexLen = Math.max(0, cfg?.apexLen ?? len * 0.6);
+    const apexFrom = a + len / 2 - apexLen / 2;
+    const apexTo = a + len / 2 + apexLen / 2;
+    // per-part widths (legacy kerbWidth as fallback)
+    const wEntry = Math.max(0, cfg?.entryW ?? cfg?.kerbWidth ?? 0);
+    const wApex = Math.max(0, cfg?.apexW ?? cfg?.kerbWidth ?? 0);
+    const wExit = Math.max(0, cfg?.exitW ?? cfg?.kerbWidth ?? 0);
 
-    const mark = (i: number, side: 'left' | 'right', profile: KerbType) => {
+    const mark = (i: number, side: 'left' | 'right', profile: KerbType, w: number) => {
       if (profile === 'none') return;
       info[i][side] = profile;
       if (side === 'left') info[i].leftW = w;
@@ -73,9 +78,9 @@ export function computeKerbInfo(
     };
     for (let i = 0; i < samples.length; i++) {
       const d = samples[i].dist;
-      if (d >= a - entryLen && d < a) mark(i, outside, entry);
-      if (d >= apexFrom && d <= apexTo) mark(i, inside, apex);
-      if (d > b && d <= b + exitLen) mark(i, outside, exit);
+      if (d >= a - entryLen && d < a) mark(i, outside, entry, wEntry);
+      if (d >= apexFrom && d <= apexTo) mark(i, inside, apex, wApex);
+      if (d > b && d <= b + exitLen) mark(i, outside, exit, wExit);
     }
   }
 
@@ -178,6 +183,10 @@ function emitStrip(
 }
 
 // Emit a strip of the kerb over columns [cFrom, cTo] into `mesh`.
+// The ends TAPER: the kerb starts as a point at the track edge and widens like
+// a triangle to full width over ~END_TAPER metres (and narrows again at the end).
+const END_TAPER = 5.0;
+
 function emitSub(
   mesh: MeshData,
   run: CenterlineSample[],
@@ -192,19 +201,23 @@ function emitSub(
   const start = mesh.vertices.length;
   const rowSize = cTo - cFrom + 1;
   const sign = side === 'left' ? 1 : -1;
+  const d0 = run[0].dist;
+  const d1 = run[run.length - 1].dist;
   run.forEach((s) => {
     const [lx, ly] = perpLeft(s.heading);
     const inner = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
     const color = stripe ? stripe[Math.floor(s.dist / STRIPE_LEN) % stripe.length] : null;
     // one full texture cycle (all stripes) per pattern repeat along the kerb
     const u = stripe ? s.dist / (STRIPE_LEN * stripe.length) : 0;
+    // pointy ends: 0 width at the very start/end, full width END_TAPER m in
+    const taper = Math.max(0, Math.min(1, (s.dist - d0) / END_TAPER, (d1 - s.dist) / END_TAPER));
     for (let c = cFrom; c <= cTo; c++) {
       const t = c / shape.cols;
-      const off = t * shape.width * scale * sign;
+      const off = t * shape.width * scale * sign * taper;
       mesh.vertices.push([
         inner[0] + lx * off,
         inner[1] + ly * off,
-        s.pos[2] + KERB_LIFT + shape.height(t, s.dist),
+        s.pos[2] + KERB_LIFT + shape.height(t, s.dist) * taper,
       ]);
       if (color && mesh.colors) mesh.colors.push(color);
       if (stripe && mesh.uvs) mesh.uvs.push([u, t]);

@@ -19,8 +19,17 @@ const LAT_G = 11; // m/s² usable lateral accel for corner speed
 const BRAKE_G = 9; // m/s² braking
 const ACCEL_G = 4.5; // m/s² traction
 
-export function genFastLaneAi(built: BuiltTrack, width: number): Uint8Array {
-  const src = built.centerline;
+export function genFastLaneAi(built: BuiltTrack, width: number, sfDist = 0): Uint8Array {
+  // Rotate the lap so spline position 0 sits ON the start/finish line: AC's
+  // lap timing and normalizedCarPosition then both start at the line instead
+  // of at the first segment's origin (which produced phantom ~3 s "laps"
+  // after a restart and offset progress readings).
+  let src = built.centerline;
+  if (built.closure.closed && sfDist > 1) {
+    let k = 0;
+    while (k < src.length - 1 && src[k].dist < sfDist) k++;
+    src = [...src.slice(k), ...src.slice(0, k)];
+  }
   const n = src.length;
   if (n < 8) return new Uint8Array(0);
 
@@ -30,7 +39,11 @@ export function genFastLaneAi(built: BuiltTrack, width: number): Uint8Array {
     let dh = src[i + 1].heading - src[i - 1].heading;
     while (dh > Math.PI) dh -= 2 * Math.PI;
     while (dh < -Math.PI) dh += 2 * Math.PI;
-    const ds = Math.max(0.5, src[i + 1].dist - src[i - 1].dist);
+    // positional distance (dist-along wraps at the rotated seam)
+    const ds = Math.max(
+      0.5,
+      Math.hypot(src[i + 1].pos[0] - src[i - 1].pos[0], src[i + 1].pos[1] - src[i - 1].pos[1]),
+    );
     curv[i] = dh / ds; // >0 = turning left
   }
   const maxOff = Math.max(0, width / 2 - 2.0);
@@ -40,7 +53,10 @@ export function genFastLaneAi(built: BuiltTrack, width: number): Uint8Array {
     for (let i = 1; i < n - 1; i++) off[i] = (off[i - 1] + off[i] * 2 + off[i + 1]) / 4;
   }
   for (let i = 1; i < n; i++) {
-    const ds = Math.max(0.1, src[i].dist - src[i - 1].dist);
+    const ds = Math.max(
+      0.1,
+      Math.hypot(src[i].pos[0] - src[i - 1].pos[0], src[i].pos[1] - src[i - 1].pos[1]),
+    );
     const d = off[i] - off[i - 1];
     const lim = 0.15 * ds;
     if (Math.abs(d) > lim) off[i] = off[i - 1] + Math.sign(d) * lim;

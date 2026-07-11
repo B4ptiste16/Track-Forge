@@ -31,11 +31,14 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80): Mesh
   return { name: '1GRASS', vertices, faces };
 }
 
-// Resolved runoff for one sample-side after applying section config + escapes.
+// Resolved trackside strip for one sample-side (defaults + zone overrides).
 export interface ResolvedSide {
   surface: string; // mesh name: 1GRASS / 1SAND / 1CONCRETE
-  width: number; // requested runoff width (m)
-  wall: boolean; // barrier at the outer edge
+  width: number; // strip width (m)
+  wall: boolean; // barrier at wallDist
+  wallDist: number; // wall distance from the track edge (m)
+  splitAt?: number; // 'gravel_spaced': grass up to here (m), then `surface`
+  splitSurface?: string; // surface of the inner split band (1GRASS)
 }
 export interface ResolvedSample {
   left: ResolvedSide;
@@ -274,9 +277,10 @@ export function buildRunoff(
     });
   const innerAt = (i: number, side: 'left' | 'right') => innerOffsets[i][side];
 
-  // Pre-compute the outer offset per side, then slope-limit it so the barrier
-  // ramps smoothly into tight sections instead of kinking.
+  // Pre-compute the strip outer offset AND the (independent) wall offset per
+  // side, then slope-limit both so nothing kinks into tight sections.
   const outer: Record<'left' | 'right', number[]> = { left: [], right: [] };
+  const wallOff: Record<'left' | 'right', number[]> = { left: [], right: [] };
   for (const side of ['left', 'right'] as const) {
     const arr = samples.map((_, i) => {
       const inner = innerAt(i, side);
@@ -284,9 +288,17 @@ export function buildRunoff(
       return Math.max(inner, Math.min(inner + resolved[i][side].width, cap));
     });
     slopeLimit(arr, dists, MAX_OFFSET_SLOPE, closed);
-    // Slope-limiting only reduces; keep the apron from inverting past the inner.
     for (let i = 0; i < arr.length; i++) arr[i] = Math.max(arr[i], innerAt(i, side));
     outer[side] = arr;
+
+    const warr = samples.map((_, i) => {
+      const inner = innerAt(i, side);
+      const cap = Math.min(curvCap[i][side], overlapCap[i]);
+      return Math.max(inner, Math.min(inner + resolved[i][side].wallDist, cap));
+    });
+    slopeLimit(warr, dists, MAX_OFFSET_SLOPE, closed);
+    for (let i = 0; i < warr.length; i++) warr[i] = Math.max(warr[i], innerAt(i, side));
+    wallOff[side] = warr;
   }
   const outerAt = (i: number, side: 'left' | 'right') => outer[side][i];
   const edgePt = (i: number, side: 'left' | 'right', off: number): Vec3 => {
@@ -301,23 +313,35 @@ export function buildRunoff(
     for (let i = 0; i < samples.length - 1; i++) {
       const inA = outerVsInner(innerAt(i, side), outerAt(i, side));
       const inB = outerVsInner(innerAt(i + 1, side), outerAt(i + 1, side));
-      // Apron quad (skip if both ends collapse to zero width).
+      // Strip quad(s) (skip if both ends collapse to zero width). For a
+      // 'gravel_spaced' strip there are two bands: a thin grass band at the
+      // track edge, then the gravel out to the strip edge.
       if (inA || inB) {
-        const surfName = resolved[i][side].surface;
-        const mesh = getSurface(surfName);
-        const base = mesh.vertices.length;
-        mesh.vertices.push(edgePt(i, side, innerAt(i, side)));
-        mesh.vertices.push(edgePt(i, side, outerAt(i, side)));
-        mesh.vertices.push(edgePt(i + 1, side, innerAt(i + 1, side)));
-        mesh.vertices.push(edgePt(i + 1, side, outerAt(i + 1, side)));
-        addQuadUp(mesh.vertices, mesh.faces, base, base + 1, base + 3, base + 2);
+        const r = resolved[i][side];
+        const emitBand = (surfName: string, offIn: (k: number) => number, offOut: (k: number) => number) => {
+          const oInA = offIn(i), oOutA = offOut(i), oInB = offIn(i + 1), oOutB = offOut(i + 1);
+          if (oOutA - oInA <= 0.03 && oOutB - oInB <= 0.03) return;
+          const mesh = getSurface(surfName);
+          const base = mesh.vertices.length;
+          mesh.vertices.push(edgePt(i, side, oInA));
+          mesh.vertices.push(edgePt(i, side, oOutA));
+          mesh.vertices.push(edgePt(i + 1, side, oInB));
+          mesh.vertices.push(edgePt(i + 1, side, oOutB));
+          addQuadUp(mesh.vertices, mesh.faces, base, base + 1, base + 3, base + 2);
+        };
+        if (r.splitAt && r.splitSurface) {
+          const split = r.splitAt;
+          emitBand(r.splitSurface, (k) => innerAt(k, side), (k) => Math.min(innerAt(k, side) + split, outerAt(k, side)));
+          emitBand(r.surface, (k) => Math.min(innerAt(k, side) + split, outerAt(k, side)), (k) => outerAt(k, side));
+        } else {
+          emitBand(r.surface, (k) => innerAt(k, side), (k) => outerAt(k, side));
+        }
       }
-      // Wall along the clamped outer edge (skipped inside a removed gap or an
-      // escape-road corridor).
+      // Wall at its own (independent) distance from the track edge.
       const gapped = inGap(samples[i].dist) || inGap(samples[i + 1].dist);
       if (walls.enabled && !gapped && resolved[i][side].wall && resolved[i + 1][side].wall) {
-        const oA = edgePt(i, side, outerAt(i, side));
-        const oB = edgePt(i + 1, side, outerAt(i + 1, side));
+        const oA = edgePt(i, side, wallOff[side][i]);
+        const oB = edgePt(i + 1, side, wallOff[side][i + 1]);
         if (inCorridor(oA) || inCorridor(oB)) continue;
         const [plx, ply] = perpLeft(samples[i].heading);
         const inwardSign = side === 'left' ? -1 : 1; // toward the track

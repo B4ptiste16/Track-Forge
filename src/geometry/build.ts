@@ -1,4 +1,4 @@
-import type { TrackProject, SectionSide } from '../types';
+import type { TrackProject, StripCfg, RunoffType } from '../types';
 import type { BuiltTrack, MeshData } from './types';
 import { buildCenterline, computeClosure } from './centerline';
 import { makeHeightFn } from './elevation';
@@ -6,7 +6,8 @@ import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
-import { computePitInfo, buildPitLane, buildPaddock, pitZone } from './pitlane';
+import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone } from './pitlane';
+import { buildBuildings } from './buildings';
 import {
   buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
   type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
@@ -85,28 +86,45 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     }
   }
 
-  // Resolve runoff per sample/side from section config + escape overrides.
-  const sectionFor = (segIndex: number) => project.runoff?.[segIndex];
-  const resolveSide = (segIndex: number, side: 'left' | 'right'): ResolvedSide => {
-    const sec = sectionFor(segIndex);
-    const base: SectionSide = (sec ? sec[side] : project.runoffDefault) ?? project.runoffDefault;
+  // Resolve the trackside strip per sample/side: default strip, then zone
+  // overrides by distance range, then per-corner geometry overrides.
+  const ts = project.trackside;
+  const stripAt = (d: number, side: 'left' | 'right'): StripCfg => {
+    let cfg = ts[side];
+    for (const z of ts.zones) {
+      if ((z.side === side || z.side === 'both') && d >= Math.min(z.from, z.to) && d <= Math.max(z.from, z.to)) {
+        cfg = z;
+      }
+    }
+    return cfg;
+  };
+  const stripSurface = (t: StripCfg['texture']): string =>
+    t === 'gravel' || t === 'gravel_spaced' ? '1SAND' : t === 'concrete' ? '1CONCRETE' : '1GRASS';
+  const toResolved = (cfg: StripCfg): ResolvedSide => ({
+    surface: stripSurface(cfg.texture),
+    width: cfg.width,
+    wall: cfg.wall,
+    wallDist: cfg.wallDist ?? cfg.width,
+    ...(cfg.texture === 'gravel_spaced' ? { splitAt: 0.5, splitSurface: '1GRASS' } : {}),
+  });
+  const resolveSide = (d: number, segIndex: number, side: 'left' | 'right'): ResolvedSide => {
+    const base = toResolved(stripAt(d, side));
     const corner = segCorner.get(segIndex);
     const outside = corner ? (corner.dir === 'left' ? 'right' : 'left') : null;
     if (corner?.escape && side === outside) {
-      // Monza-style escape road is built separately; keep the outside apron
-      // but never wall it off (the corridor check also protects neighbours).
-      return { surface: runoffSurfaceName(base.type === 'wall' ? 'grass' : base.type), width: base.dist, wall: false };
+      // Monza-style escape road is built separately; never wall off its side.
+      return { ...base, wall: false };
     }
     if (corner && side === corner.dir) {
       // Inside of a corner: covered by the concentric infield fill instead of
-      // the strip apron (which went lumpy on hairpins). No apron, no wall.
-      return { surface: runoffSurfaceName(base.type === 'wall' ? 'grass' : base.type), width: 0, wall: false };
+      // the strip (which went lumpy on hairpins). No strip, no wall.
+      return { ...base, width: 0, wall: false };
     }
-    return { surface: runoffSurfaceName(base.type), width: base.dist, wall: base.type === 'wall' ? true : base.wall };
+    return base;
   };
   const resolved: ResolvedSample[] = samples.map((s, i) => {
-    const L = resolveSide(s.segIndex, 'left');
-    const R = resolveSide(s.segIndex, 'right');
+    const L = resolveSide(s.dist, s.segIndex, 'left');
+    const R = resolveSide(s.dist, s.segIndex, 'right');
     return {
       left: suppressWall[i].left ? { ...L, wall: false } : L,
       right: suppressWall[i].right ? { ...R, wall: false } : R,
@@ -135,13 +153,18 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   mergeInto(kerb.hi, esc.kerbHi);
 
   // Paddock beside the pit lane, deep enough for however many box rows.
+  let paddockDepth = 0;
   if (project.pit.enabled && (project.pit.paddock ?? true)) {
     const z = pitZone(project, totalLength);
     const span = Math.max(1, z.boxB - 4 - (z.boxA + 4));
     const perRow = Math.max(1, Math.floor(span / 8));
     const rows = Math.ceil(project.grid.pits / perRow);
-    mergeInto(pit, buildPaddock(samples, project, width, 8 + rows * 7));
+    paddockDepth = 8 + rows * 7;
+    mergeInto(pit, buildPaddock(samples, project, width, paddockDepth));
   }
+  // Pit structures: wall between track and pit lane, garage building along the
+  // paddock, painted pit-box lines on the lane.
+  const pitDeco = buildPitStructures(samples, project, width, totalLength, paddockDepth);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors);
 
@@ -152,13 +175,12 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const seg = segsClamped[span.segIndex];
     if (seg.kind !== 'corner') continue;
     const cfg = project.corners.find((c) => c.cornerIndex === span.cornerIndex);
-    const sec = sectionFor(span.segIndex);
-    const sideCfg: SectionSide = (sec ? sec[seg.dir] : project.runoffDefault) ?? project.runoffDefault;
-    const insideType = cfg?.insideSurface ?? (sideCfg.type === 'wall' ? 'grass' : sideCfg.type);
+    const midCfg = stripAt((span.startDist + span.endDist) / 2, seg.dir);
+    const insideType = cfg?.insideSurface ?? (midCfg.texture === 'gravel_spaced' ? 'gravel' : midCfg.texture);
     fills.push({
       span, radius: seg.radius, dir: seg.dir,
-      surface: runoffSurfaceName(insideType),
-      depth: Math.max(6, sideCfg.dist),
+      surface: runoffSurfaceName(insideType as RunoffType),
+      depth: Math.max(6, midCfg.width),
     });
   }
   for (const fm of buildCornerFill(samples, width, fills)) {
@@ -186,14 +208,23 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     else runoffMeshes.unshift(ground);
   }
 
+  // Pit wall merges into the physical 1WALL mesh.
+  if (pitDeco.wall.faces.length) {
+    const wallMesh0 = runoffMeshes.find((m) => m.name === '1WALL');
+    if (wallMesh0) mergeInto(wallMesh0, pitDeco.wall);
+    else runoffMeshes.push(pitDeco.wall);
+  }
+
   const empties = buildEmpties(samples, project);
   const decor = buildDecor(project, samples, spans, width, resolved);
+  const bldgs = buildBuildings(project.buildings ?? [], samples);
 
   // Draw/export order: aprons first, then road/pit/lines/kerbs, walls, decor.
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
-    ...aprons, road, pit, lines, kerb.base, kerb.hi, ...wallMesh, esc.poly, esc.bollards, ...decor,
+    ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
+    esc.poly, esc.bollards, ...decor, pitDeco.building, pitDeco.garage, bldgs,
   ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own

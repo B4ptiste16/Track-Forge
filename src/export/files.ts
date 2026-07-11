@@ -24,7 +24,7 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
   const built = buildTrack(project);
   const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme, project.walls.style);
   const fbxText = genFbx(project, built);
-  const aiLine = genFastLaneAi(built, project.road.width);
+  const aiLine = genFastLaneAi(built, project.road.width, project.startFinishDist);
 
   const files: TrackFile[] = [
     { path: `${slug}.fbx`, text: fbxText },

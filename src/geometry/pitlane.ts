@@ -1,7 +1,7 @@
 import type { TrackProject } from '../types';
 import type { CenterlineSample, MeshData, Vec3 } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
-import { addQuadUp } from './meshbuilder';
+import { addQuadUp, addQuadToward } from './meshbuilder';
 
 export interface PitSample {
   left: number; // pit lane width on the left at this sample (0 = none)
@@ -110,6 +110,130 @@ export function buildPaddock(
     addQuadUp(mesh.vertices, mesh.faces, b, b + 1, b + 3, b + 2);
   }
   return mesh;
+}
+
+// Pit complex: (1) low pit wall separating track from pit lane over the
+// full-width zone, (2) garage building along the far side of the paddock with
+// dark garage doors, (3) painted pit-box lines on the lane. All follow the
+// road samples, so they curve with the track.
+export interface PitStructures {
+  wall: MeshData; // merged into 1WALL (physical)
+  building: MeshData; // DECOR_PITBLDG (visual)
+  garage: MeshData; // DECOR_GARAGE door quads (visual)
+  lines: MeshData; // PIT_LINE painted markings (visual)
+}
+
+export function buildPitStructures(
+  samples: CenterlineSample[],
+  project: TrackProject,
+  width: number,
+  totalLength: number,
+  paddockDepth: number,
+): PitStructures {
+  const wall: MeshData = { name: '1WALL', vertices: [], faces: [], uvs: [] };
+  const building: MeshData = { name: 'DECOR_PITBLDG', vertices: [], faces: [] };
+  const garage: MeshData = { name: 'DECOR_GARAGE', vertices: [], faces: [] };
+  const lines: MeshData = { name: 'PIT_LINE', vertices: [], faces: [] };
+  const out = { wall, building, garage, lines };
+  if (!project.pit.enabled || !(project.pit.structures ?? true) || samples.length < 2) return out;
+
+  const z = pitZone(project, totalLength);
+  if (z.boxB - z.boxA < 12) return out;
+  const side = project.pit.side;
+  const sign = side === 'left' ? 1 : -1;
+  const idx: number[] = [];
+  for (let i = 0; i < samples.length; i++) {
+    if (samples[i].dist >= z.boxA && samples[i].dist <= z.boxB) idx.push(i);
+  }
+  if (idx.length < 2) return out;
+
+  const at = (i: number, off: number): Vec3 => {
+    const s = samples[i];
+    const [lx, ly] = perpLeft(s.heading);
+    const edge = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
+    return [edge[0] + lx * off * sign, edge[1] + ly * off * sign, s.pos[2]];
+  };
+
+  // --- (1) pit wall on the track/lane boundary (leaves entry+exit open) ----
+  const WALL_H = 1.0;
+  for (let n = 0; n < idx.length - 1; n++) {
+    const i = idx[n], j = idx[n + 1];
+    if (samples[i].dist < z.boxA + 2 || samples[j].dist > z.boxB - 2) continue;
+    const a = at(i, 0), b = at(j, 0);
+    const [lx, ly] = perpLeft(samples[i].heading);
+    const toLane: Vec3 = [lx * sign, ly * sign, 0];
+    const base = wall.vertices.length;
+    wall.vertices.push([a[0], a[1], a[2]], [a[0], a[1], a[2] + WALL_H], [b[0], b[1], b[2]], [b[0], b[1], b[2] + WALL_H]);
+    wall.uvs!.push([samples[i].dist / 3, 0], [samples[i].dist / 3, 1], [samples[j].dist / 3, 0], [samples[j].dist / 3, 1]);
+    addQuadToward(wall.vertices, wall.faces, base, base + 1, base + 3, base + 2, [-toLane[0], -toLane[1], 0]);
+    // back face so it's solid from the lane side too
+    const b2 = wall.vertices.length;
+    wall.vertices.push([a[0], a[1], a[2]], [a[0], a[1], a[2] + WALL_H], [b[0], b[1], b[2]], [b[0], b[1], b[2] + WALL_H]);
+    wall.uvs!.push([samples[i].dist / 3, 0], [samples[i].dist / 3, 1], [samples[j].dist / 3, 0], [samples[j].dist / 3, 1]);
+    addQuadToward(wall.vertices, wall.faces, b2, b2 + 1, b2 + 3, b2 + 2, toLane);
+  }
+
+  // --- (2) garage building along the outer edge of lane/paddock ------------
+  const off0 = project.pit.width + Math.max(0, paddockDepth);
+  const DEPTH = 7, H = 5;
+  const emitQuadToward = (m: MeshData, p1: Vec3, p2: Vec3, z0: number, z1: number, dir: Vec3) => {
+    const b = m.vertices.length;
+    m.vertices.push([p1[0], p1[1], z0], [p1[0], p1[1], z1], [p2[0], p2[1], z0], [p2[0], p2[1], z1]);
+    addQuadToward(m.vertices, m.faces, b, b + 1, b + 3, b + 2, dir);
+  };
+  for (let n = 0; n < idx.length - 1; n++) {
+    const i = idx[n], j = idx[n + 1];
+    const [lx, ly] = perpLeft(samples[i].heading);
+    const toLane: Vec3 = [-lx * sign, -ly * sign, 0]; // building front faces the lane
+    const f1 = at(i, off0), f2 = at(j, off0);
+    emitQuadToward(building, f1, f2, f1[2], f1[2] + H, toLane); // front
+    const r1 = at(i, off0 + DEPTH), r2 = at(j, off0 + DEPTH);
+    emitQuadToward(building, r1, r2, r1[2], r1[2] + H, [-toLane[0], -toLane[1], 0]); // rear
+    // roof
+    const b = building.vertices.length;
+    building.vertices.push(
+      [f1[0], f1[1], f1[2] + H], [r1[0], r1[1], r1[2] + H],
+      [f2[0], f2[1], f2[2] + H], [r2[0], r2[1], r2[2] + H],
+    );
+    addQuadUp(building.vertices, building.faces, b, b + 1, b + 3, b + 2);
+  }
+  // garage doors: dark quads slightly in front of the facade, every 8 m
+  for (let d = z.boxA + 4; d < z.boxB - 6; d += 8) {
+    let i0 = idx[0];
+    for (const i of idx) { if (samples[i].dist >= d) { i0 = i; break; } }
+    let i1 = i0;
+    for (const i of idx) { if (samples[i].dist >= d + 5) { i1 = i; break; } }
+    if (i1 === i0) continue;
+    const [lx, ly] = perpLeft(samples[i0].heading);
+    const toLane: Vec3 = [-lx * sign, -ly * sign, 0];
+    const g1 = at(i0, off0 - 0.06), g2 = at(i1, off0 - 0.06);
+    emitQuadToward(garage, g1, g2, g1[2], g1[2] + 3.2, toLane);
+  }
+
+  // --- (3) painted pit-box lines on the lane --------------------------------
+  const LIFT = 0.007;
+  const stripe = (i0: number, i1: number, offA: number, offB: number) => {
+    const a0 = at(i0, offA), a1 = at(i0, offB), b0 = at(i1, offA), b1 = at(i1, offB);
+    const b = lines.vertices.length;
+    lines.vertices.push(
+      [a0[0], a0[1], a0[2] + LIFT], [a1[0], a1[1], a1[2] + LIFT],
+      [b0[0], b0[1], b0[2] + LIFT], [b1[0], b1[1], b1[2] + LIFT],
+    );
+    addQuadUp(lines.vertices, lines.faces, b, b + 1, b + 3, b + 2);
+  };
+  // continuous line along the lane's outer edge
+  for (let n = 0; n < idx.length - 1; n++) {
+    stripe(idx[n], idx[n + 1], project.pit.width - 0.35, project.pit.width - 0.15);
+  }
+  // transverse box line every 8 m
+  for (let d = z.boxA + 4; d < z.boxB - 2; d += 8) {
+    let i0 = idx[0];
+    for (const i of idx) { if (samples[i].dist >= d) { i0 = i; break; } }
+    let i1 = i0;
+    for (const i of idx) { if (samples[i].dist >= d + 0.4) { i1 = i; break; } }
+    if (i1 !== i0) stripe(i0, i1, 0.4, project.pit.width - 0.5);
+  }
+  return out;
 }
 
 function emitPitStrip(

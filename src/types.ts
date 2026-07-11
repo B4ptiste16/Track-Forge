@@ -25,23 +25,73 @@ export interface CornerConfig {
   apex: KerbType;
   exit: KerbType;
   escape?: boolean; // paved escape road on the outside of this corner
-  kerbWidth?: number; // m — overrides the profile's default cross-section width
+  kerbWidth?: number; // legacy single width (fallback for the per-part widths)
+  entryW?: number; // m — entry kerb cross-section width
+  apexW?: number; // m — apex kerb cross-section width
+  exitW?: number; // m — exit kerb cross-section width
   entryLen?: number; // m of entry kerb before the corner (default 25)
   exitLen?: number; // m of exit kerb after the corner (default 30)
-  apexLen?: number; // m of apex kerb, centered mid-corner (default 60% of the arc)
+  apexLen?: number; // m of apex kerb, centered mid-corner, fully free (default 60% of arc)
   insideSurface?: 'grass' | 'gravel' | 'concrete'; // infield fill inside this corner
 }
 
-// Per-section runoff treatment for one side of the road.
+// Legacy per-segment runoff (old projects) — migrated to Trackside on load.
 export type RunoffType = 'grass' | 'gravel' | 'concrete' | 'wall';
 export interface SectionSide {
   type: RunoffType;
-  dist: number; // runoff width (m); for 'wall', distance from track to the wall
-  wall: boolean; // place a barrier at the outer edge
+  dist: number;
+  wall: boolean;
 }
 export interface SectionRunoff {
   left: SectionSide;
   right: SectionSide;
+}
+
+// ---------------------------------------------------------------------------
+// Trackside: one continuous strip along each side of the whole lap, plus
+// distance-range zones that override it (wider, different texture, wall pushed
+// further out...). 'gravel_spaced' = 0.5 m of grass between track and gravel.
+// ---------------------------------------------------------------------------
+export type StripTexture = 'grass' | 'gravel' | 'gravel_spaced' | 'concrete';
+export interface StripCfg {
+  texture: StripTexture;
+  width: number; // strip width from the track edge (m)
+  wall: boolean; // barrier at the outer boundary
+  wallDist?: number; // wall distance from the track edge (defaults to width)
+}
+export interface TracksideZone extends StripCfg {
+  id: string;
+  side: 'left' | 'right' | 'both';
+  from: number; // m along the lap
+  to: number;
+}
+export interface Trackside {
+  left: StripCfg;
+  right: StripCfg;
+  zones: TracksideZone[];
+}
+
+// A placeable decorative building (visual only in AC).
+export interface Building {
+  id: string;
+  x: number;
+  y: number; // native world XY
+  w: number; // length (m), along rot
+  d: number; // depth (m)
+  h: number; // height (m)
+  rot: number; // degrees, CCW
+}
+
+// An alternate track layout: everything shape-related, saved under a name.
+export interface SavedLayout {
+  name: string;
+  segments: Segment[];
+  corners: CornerConfig[];
+  elevation: ElevationPoint[];
+  startFinishDist: number;
+  trackside: Trackside;
+  manualWalls: ManualWall[];
+  wallGaps: WallGap[];
 }
 
 export type Theme = 'tarmac_day' | 'tarmac_dusk' | 'desert' | 'france';
@@ -56,6 +106,7 @@ export interface PitConfig {
   limitFrom: number; // distance where the pit speed limit starts (m)
   limitTo: number; // distance where the pit speed limit ends (m)
   paddock?: boolean; // paved paddock beside the lane; pit boxes sit on it (track-day spawns)
+  structures?: boolean; // pit wall vs track + garage building + painted box lines
 }
 
 export type WallStyle = 'solid' | 'armco' | 'tecpro' | 'blocks';
@@ -106,8 +157,11 @@ export interface TrackProject {
   pit: PitConfig;
   walls: WallConfig;
   bridge: BridgeConfig;
-  runoffDefault: SectionSide; // applied to sections without an override
-  runoff: SectionRunoff[]; // one per segment (synced)
+  trackside: Trackside; // continuous side strips + zone overrides
+  buildings: Building[]; // placeable decorative buildings
+  layouts?: SavedLayout[]; // saved alternate layouts of this track
+  runoffDefault?: SectionSide; // LEGACY (pre-trackside projects; migrated on load)
+  runoff?: SectionRunoff[]; // LEGACY
   autoClipRunoff: boolean; // shrink runoff so it never overlaps nearby track
   manualWalls: ManualWall[]; // hand-drawn barriers
   wallGaps: WallGap[]; // stretches where the auto barrier is removed

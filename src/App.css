@@ -8,13 +8,74 @@
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 18px;
+  padding: 12px 18px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.toolbar .brand { font-weight: 700; font-size: 16px; letter-spacing: 0.02em; }
+.toolbar .brand { font-weight: 700; font-size: 18px; letter-spacing: 0.02em; margin-right: 6px; }
 .toolbar .spacer { flex: 1; }
+.toolbar button { padding: 8px 14px; font-size: 13.5px; }
+.tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tb-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Right panel tabs: everything reachable without endless scrolling. */
+.tabs {
+  position: sticky;
+  top: -10px;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  margin: -10px -12px 10px;
+  padding: 10px 12px 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.tabs button {
+  flex: 1;
+  padding: 9px 6px;
+  font-size: 13px;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: var(--text-dim);
+}
+.tabs button.active {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Trackside zone / building cards */
+.strip-default { margin: 8px 0; }
+.strip-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.strip-controls select { min-width: 110px; }
+.strip-controls input[type='number'] { width: 52px; }
+.strip-controls label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.zone-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.zone-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.zone-head .danger { margin-left: auto; }
+.bldg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.bldg-num { display: flex; flex-direction: column; font-size: 11px; color: var(--text-dim); }
+.bldg-num input { width: 100%; }
+.field-row { display: flex; gap: 12px; align-items: center; }
+.kerb-escape { display: inline-flex; margin-left: 10px; font-size: 12px; font-weight: 400; }
 
 .desktop-bar { display: inline-flex; align-items: center; gap: 6px; position: relative; }
 .desktop-status { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -39,7 +100,7 @@
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 260px 1fr 320px;
+  grid-template-columns: 260px 1fr 380px;
   min-height: 0;
 }
 

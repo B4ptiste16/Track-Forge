@@ -4,7 +4,7 @@ import type { BuiltTrack } from '../geometry';
 import { perpLeft } from '../geometry';
 import { THEME_PALETTES } from '../state/project';
 
-type EditorMode = 'shape' | 'wall';
+type EditorMode = 'shape' | 'wall' | 'zone' | 'building';
 
 interface Props {
   project: TrackProject;
@@ -12,6 +12,8 @@ interface Props {
   onCloseLoop: () => void;
   onSegmentsChange: (segs: Segment[]) => void;
   onManualWallsChange: (walls: ManualWall[]) => void;
+  onZonePicked: (from: number, to: number, side: 'left' | 'right') => void;
+  onPlaceBuilding: (x: number, y: number) => void;
 }
 
 interface Transform { minX: number; minY: number; scale: number; ox: number; oy: number; H: number; }
@@ -35,13 +37,14 @@ function nearestIndex(built: BuiltTrack, dist: number): number {
   return best;
 }
 
-export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange, onManualWallsChange }: Props) {
+export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange, onManualWallsChange, onZonePicked, onPlaceBuilding }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const txRef = useRef<Transform | null>(null);
   const handlesRef = useRef<Handle[]>([]);
   const dragRef = useRef<{ h: Handle; startWorld: [number, number]; startRadius: number } | null>(null);
   const [mode, setMode] = useState<EditorMode>('shape');
   const [draft, setDraft] = useState<[number, number][]>([]);
+  const [zoneAnchor, setZoneAnchor] = useState<{ dist: number; side: 'left' | 'right' } | null>(null);
   // Keep latest project/built/callback for window-level drag handlers.
   const stateRef = useRef({ project, built, onSegmentsChange });
   stateRef.current = { project, built, onSegmentsChange };
@@ -179,6 +182,58 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       ctx.strokeStyle = ctx.fillStyle as string; ctx.lineWidth = 1.5; ctx.stroke();
     }
 
+    // Trackside zones highlighted along the road edge.
+    const zoneColor: Record<string, string> = {
+      grass: '#57a05a', gravel: '#c9a35c', gravel_spaced: '#d9b46a', concrete: '#9aa0a8',
+    };
+    for (const z of project.trackside?.zones ?? []) {
+      for (const zside of z.side === 'both' ? (['left', 'right'] as const) : [z.side]) {
+        const sgn = zside === 'left' ? 1 : -1;
+        ctx.beginPath();
+        let started = false;
+        for (const s of samples) {
+          if (s.dist < Math.min(z.from, z.to) || s.dist > Math.max(z.from, z.to)) continue;
+          const [lx, ly] = perpLeft(s.heading);
+          const x = sx(s.pos[0] + lx * (w2 + 3) * sgn), y = sy(s.pos[1] + ly * (w2 + 3) * sgn);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = zoneColor[z.texture] ?? '#888';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
+    }
+
+    // Buildings (rotated rectangles).
+    for (const b of project.buildings ?? []) {
+      const a = (b.rot * Math.PI) / 180;
+      const ux = Math.cos(a), uy = Math.sin(a), vx = -Math.sin(a), vy = Math.cos(a);
+      const pts: [number, number][] = [
+        [b.x - ux * b.w / 2 - vx * b.d / 2, b.y - uy * b.w / 2 - vy * b.d / 2],
+        [b.x + ux * b.w / 2 - vx * b.d / 2, b.y + uy * b.w / 2 - vy * b.d / 2],
+        [b.x + ux * b.w / 2 + vx * b.d / 2, b.y + uy * b.w / 2 + vy * b.d / 2],
+        [b.x - ux * b.w / 2 + vx * b.d / 2, b.y - uy * b.w / 2 + vy * b.d / 2],
+      ];
+      ctx.beginPath();
+      pts.forEach((p, i) => { const x = sx(p[0]), y = sy(p[1]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(185,179,168,0.55)';
+      ctx.fill();
+      ctx.strokeStyle = '#b9b3a8';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Pending zone anchor marker.
+    if (zoneAnchor) {
+      const i = nearestIndex(built, zoneAnchor.dist);
+      const s = samples[i];
+      const [lx, ly] = perpLeft(s.heading);
+      const sgn = zoneAnchor.side === 'left' ? 1 : -1;
+      const x = sx(s.pos[0] + lx * (w2 + 3) * sgn), y = sy(s.pos[1] + ly * (w2 + 3) * sgn);
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffd24a'; ctx.fill();
+    }
+
     // Manual (hand-drawn) walls.
     for (const w of project.manualWalls ?? []) {
       if (w.points.length < 1) continue;
@@ -194,7 +249,7 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       for (const p of draft) { ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 3, 0, Math.PI * 2); ctx.fillStyle = '#ffd24a'; ctx.fill(); }
     }
     ctx.textAlign = 'left';
-  }, [project, built, mode, draft]);
+  }, [project, built, mode, draft, zoneAnchor]);
 
   // ---- dragging ----
   const screenToWorld = (clientX: number, clientY: number): [number, number] => {
@@ -207,10 +262,43 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
     return [x, y];
   };
 
+  // Nearest centerline sample to a world point -> (dist along lap, side of track).
+  const trackHit = (wx: number, wy: number): { dist: number; side: 'left' | 'right' } => {
+    const s = stateRef.current.built.centerline;
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < s.length; i++) {
+      const d = (s[i].pos[0] - wx) ** 2 + (s[i].pos[1] - wy) ** 2;
+      if (d < bd) { bd = d; bi = i; }
+    }
+    const [lx, ly] = perpLeft(s[bi].heading);
+    const lat = (wx - s[bi].pos[0]) * lx + (wy - s[bi].pos[1]) * ly;
+    return { dist: s[bi].dist, side: lat >= 0 ? 'left' : 'right' };
+  };
+
   const onMouseDown = (ev: React.MouseEvent) => {
     // Wall-draw mode: each click drops a point on the wall being drawn.
     if (mode === 'wall') {
       setDraft((d) => [...d, screenToWorld(ev.clientX, ev.clientY)]);
+      ev.preventDefault();
+      return;
+    }
+    // Zone-select mode: two clicks along the track define a trackside zone.
+    if (mode === 'zone') {
+      const [wx, wy] = screenToWorld(ev.clientX, ev.clientY);
+      const hit = trackHit(wx, wy);
+      if (!zoneAnchor) {
+        setZoneAnchor(hit);
+      } else {
+        onZonePicked(Math.min(zoneAnchor.dist, hit.dist), Math.max(zoneAnchor.dist, hit.dist), zoneAnchor.side);
+        setZoneAnchor(null);
+      }
+      ev.preventDefault();
+      return;
+    }
+    // Building mode: drop a building where clicked.
+    if (mode === 'building') {
+      const [wx, wy] = screenToWorld(ev.clientX, ev.clientY);
+      onPlaceBuilding(Math.round(wx), Math.round(wy));
       ev.preventDefault();
       return;
     }
@@ -284,14 +372,16 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   return (
     <div className="editor2d">
       <div className="canvas-wrap">
-        <canvas ref={canvasRef} onMouseDown={onMouseDown} style={{ cursor: mode === 'wall' ? 'copy' : 'crosshair' }} />
+        <canvas ref={canvasRef} onMouseDown={onMouseDown} style={{ cursor: mode === 'shape' ? 'crosshair' : 'copy' }} />
       </div>
       <div className="closure-bar">
         <span className="mode-toggle">
-          <button className={mode === 'shape' ? 'active' : ''} onClick={() => { setMode('shape'); setDraft([]); }}>Shape</button>
-          <button className={mode === 'wall' ? 'active' : ''} onClick={() => setMode('wall')}>Draw wall</button>
+          <button className={mode === 'shape' ? 'active' : ''} onClick={() => { setMode('shape'); setDraft([]); setZoneAnchor(null); }}>Shape</button>
+          <button className={mode === 'zone' ? 'active' : ''} onClick={() => { setMode('zone'); setDraft([]); }}>Select strip</button>
+          <button className={mode === 'wall' ? 'active' : ''} onClick={() => { setMode('wall'); setZoneAnchor(null); }}>Draw wall</button>
+          <button className={mode === 'building' ? 'active' : ''} onClick={() => { setMode('building'); setDraft([]); setZoneAnchor(null); }}>Place building</button>
         </span>
-        {mode === 'shape' ? (
+        {mode === 'shape' && (
           <>
             <span className={c.closed ? 'ok' : 'warn'}>
               Gap: {c.gap.toFixed(1)} m · off {c.headingOff.toFixed(0)}° {c.closed ? '✓' : '✕'}
@@ -299,13 +389,24 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
             <span className="muted hint">drag ● radius · ○ angle</span>
             <button onClick={onCloseLoop}>Close loop</button>
           </>
-        ) : (
+        )}
+        {mode === 'zone' && (
+          <span className="muted hint">
+            {zoneAnchor
+              ? `start set at ${Math.round(zoneAnchor.dist)} m (${zoneAnchor.side}) — click the end of the stretch`
+              : 'click the START of the stretch, on the side you want (left/right of the road)'}
+          </span>
+        )}
+        {mode === 'wall' && (
           <>
             <span className="muted hint">click to drop points · {wallCount} wall(s)</span>
             <button onClick={() => setDraft((d) => d.slice(0, -1))} disabled={!draft.length}>Undo pt</button>
             <button onClick={finishWall} disabled={draft.length < 2}>Finish wall</button>
             <button className="danger" onClick={() => onManualWallsChange([])} disabled={!wallCount}>Clear walls</button>
           </>
+        )}
+        {mode === 'building' && (
+          <span className="muted hint">click anywhere to drop a building — tune size/rotation in the Facilities tab</span>
         )}
       </div>
     </div>

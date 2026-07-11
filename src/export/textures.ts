@@ -184,8 +184,32 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       ctx.fillRect(0, 0, SIZE, 10);
       break;
     }
-    case 'ROAD_LINE': {
+    case 'ROAD_LINE':
+    case 'PIT_LINE': {
       grain(ctx, 5);
+      break;
+    }
+    case 'DECOR_BUILDING': {
+      grain(ctx, 6);
+      // window grid
+      ctx.fillStyle = 'rgba(30,40,55,0.85)';
+      for (let y = 24; y < SIZE - 16; y += 48) {
+        for (let x = 16; x < SIZE - 16; x += 40) ctx.fillRect(x, y, 24, 20);
+      }
+      break;
+    }
+    case 'DECOR_PITBLDG': {
+      grain(ctx, 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; // fascia band
+      ctx.fillRect(0, 0, SIZE, 26);
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      for (let x = 0; x < SIZE; x += 64) ctx.fillRect(x, 0, 2, SIZE);
+      break;
+    }
+    case 'DECOR_GARAGE': {
+      grain(ctx, 5);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)'; // roller-door ribs
+      for (let y = 6; y < SIZE; y += 18) ctx.fillRect(0, y, SIZE, 4);
       break;
     }
     case 'DECOR_BOLLARD': {

@@ -1,5 +1,8 @@
-import type { TrackProject, KerbType, Theme, Segment, CornerConfig, SectionSide, SectionRunoff } from '../types';
-import { countCorners } from '../geometry';
+import type {
+  TrackProject, KerbType, Theme, Segment, CornerConfig, SectionSide, SectionRunoff,
+  Trackside, StripCfg, TracksideZone, SavedLayout,
+} from '../types';
+import { countCorners, buildCenterline } from '../geometry';
 
 let idCounter = 0;
 export function newSegId(): string {
@@ -36,6 +39,10 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === '1SAND') return pal.sand;
   if (name === '1CONCRETE') return pal.concrete;
   if (name === 'ROAD_LINE') return '#eef0f2';
+  if (name === 'PIT_LINE') return '#f0f1f3';
+  if (name === 'DECOR_BUILDING') return '#b9b3a8';
+  if (name === 'DECOR_PITBLDG') return '#8e8b84';
+  if (name === 'DECOR_GARAGE') return '#23252a';
   if (name === '1WALLPOLY') return '#e8d24a';
   if (name === 'DECOR_BOLLARD') return '#ff7a1a';
   if (name === 'DECOR_POLE') return '#9ea3aa';
@@ -78,15 +85,60 @@ export function defaultProject(): TrackProject {
     corners: syncCorners(segments, [], 'flat'),
     startFinishDist: 100,
     grid: { pits: 2, starts: 2 },
-    pit: { enabled: true, side: 'right', width: 8, entry: 0, exit: 95, limitFrom: 0, limitTo: 100, paddock: true },
+    pit: { enabled: true, side: 'right', width: 8, entry: 0, exit: 95, limitFrom: 0, limitTo: 100, paddock: true, structures: true },
     walls: { enabled: true, height: 1.2, style: 'solid' },
     bridge: { auto: true, incline: 0.05, clearance: 7 },
-    runoffDefault: { type: 'grass', dist: 14, wall: true },
-    runoff: syncRunoff(segments, [], { type: 'grass', dist: 14, wall: true }),
+    trackside: defaultTrackside(),
+    buildings: [],
     autoClipRunoff: true,
     manualWalls: [],
     wallGaps: [],
   };
+}
+
+export function defaultTrackside(): Trackside {
+  const strip = (): StripCfg => ({ texture: 'grass', width: 14, wall: true });
+  return { left: strip(), right: strip(), zones: [] };
+}
+
+let zoneCounter = 0;
+export function newZoneId(): string {
+  return `zone_${Date.now().toString(36)}_${zoneCounter++}`;
+}
+
+// Convert a legacy per-segment runoff config into trackside default + zones.
+function migrateRunoff(p: TrackProject): Trackside {
+  const def = p.runoffDefault ?? { type: 'grass', dist: 14, wall: true };
+  const toStrip = (s: SectionSide): StripCfg => ({
+    texture: s.type === 'wall' ? 'grass' : s.type === 'gravel' ? 'gravel' : (s.type as StripCfg['texture']),
+    width: s.type === 'wall' ? Math.max(2, s.dist) : s.dist,
+    wall: s.type === 'wall' ? true : s.wall,
+    wallDist: s.type === 'wall' ? s.dist : undefined,
+  });
+  const ts: Trackside = { left: toStrip(def), right: toStrip(def), zones: [] };
+  const runoff = p.runoff;
+  if (runoff?.length) {
+    try {
+      const { spans } = buildCenterline(p.segments);
+      const same = (a: SectionSide, b: SectionSide) =>
+        a.type === b.type && a.dist === b.dist && a.wall === b.wall;
+      for (const span of spans) {
+        const sec = runoff[span.segIndex];
+        if (!sec) continue;
+        for (const side of ['left', 'right'] as const) {
+          if (!same(sec[side], def)) {
+            ts.zones.push({
+              id: newZoneId(), side, from: Math.round(span.startDist), to: Math.round(span.endDist),
+              ...toStrip(sec[side]),
+            });
+          }
+        }
+      }
+    } catch {
+      // keep just the defaults if the old geometry can't be rebuilt
+    }
+  }
+  return ts;
 }
 
 // Keep one SectionRunoff per segment. Preserve existing by index; fill new ones
@@ -103,7 +155,6 @@ export function syncRunoff(
 export function withDefaults(p: TrackProject): TrackProject {
   const d = defaultProject();
   const walls = p.walls ? { ...d.walls, ...p.walls } : d.walls;
-  const runoffDefault = p.runoffDefault ?? d.runoffDefault;
   // Migrate an older pit config (which had `length`) to entry/exit/limit.
   let pit = p.pit ?? d.pit;
   if (pit && (pit as { entry?: number }).entry === undefined) {
@@ -116,17 +167,56 @@ export function withDefaults(p: TrackProject): TrackProject {
     };
   }
   if (pit && pit.paddock === undefined) pit = { ...pit, paddock: true };
+  if (pit && pit.structures === undefined) pit = { ...pit, structures: true };
+  // Migrate legacy per-segment runoff to the trackside strips + zones.
+  const trackside = p.trackside ?? migrateRunoff(p);
   return {
     ...p,
     pit,
     walls,
     bridge: p.bridge ?? d.bridge,
-    runoffDefault,
-    runoff: syncRunoff(p.segments, p.runoff ?? [], runoffDefault),
+    trackside,
+    buildings: p.buildings ?? [],
+    layouts: p.layouts ?? [],
     autoClipRunoff: p.autoClipRunoff ?? d.autoClipRunoff,
     manualWalls: p.manualWalls ?? [],
     wallGaps: p.wallGaps ?? [],
   };
+}
+
+// Snapshot / restore an alternate layout (everything shape-related).
+export function snapshotLayout(p: TrackProject, name: string): SavedLayout {
+  return JSON.parse(
+    JSON.stringify({
+      name,
+      segments: p.segments,
+      corners: p.corners,
+      elevation: p.elevation,
+      startFinishDist: p.startFinishDist,
+      trackside: p.trackside,
+      manualWalls: p.manualWalls,
+      wallGaps: p.wallGaps,
+    }),
+  ) as SavedLayout;
+}
+
+export function applyLayout(p: TrackProject, l: SavedLayout): TrackProject {
+  const copy = JSON.parse(JSON.stringify(l)) as SavedLayout;
+  return {
+    ...p,
+    segments: copy.segments,
+    corners: copy.corners,
+    elevation: copy.elevation,
+    startFinishDist: copy.startFinishDist,
+    trackside: copy.trackside,
+    manualWalls: copy.manualWalls,
+    wallGaps: copy.wallGaps,
+  };
+}
+
+// A single zone's ids need to be unique when duplicated.
+export function cloneZone(z: TracksideZone): TracksideZone {
+  return { ...z, id: newZoneId() };
 }
 
 // Keep one CornerConfig per corner segment. Preserve existing entries by index;
@@ -156,7 +246,9 @@ export function uniformCorners(
   const out: CornerConfig[] = [];
   for (let i = 0; i < n; i++) {
     const prev = existing.find((c) => c.cornerIndex === i);
-    out.push({ cornerIndex: i, entry: kerb, apex: kerb, exit: kerb, escape: prev?.escape });
+    // keep every per-corner tweak (escape, widths, lengths, inside surface);
+    // only the kerb TYPES become uniform.
+    out.push({ ...(prev ?? {}), cornerIndex: i, entry: kerb, apex: kerb, exit: kerb });
   }
   return out;
 }
