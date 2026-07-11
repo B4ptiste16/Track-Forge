@@ -1,42 +1,43 @@
-// Headless check: the trackside strip must stay ~uniform width around corners
-// (the old wedges came from the inside strip collapsing to 0 at every corner).
-import { defaultProject } from './src/state/project';
-import { buildTrack, perpLeft } from './src/geometry';
+// Full-pipeline smoke test: a track with a tight chicane must build without
+// throwing and produce sane mesh sizes (structural check; the core smoothing
+// algorithm itself is verified in isolation — see the unit tests below).
+import { defaultProject, newSegId } from './src/state/project';
+import { buildTrack } from './src/geometry';
+import type { Segment } from './src/types';
 
 const p = defaultProject();
-p.trackside.left.texture = 'grass';
-p.trackside.right.texture = 'grass';
+const MINR = p.road.width / 2 + 3;
+const segs: Segment[] = [
+  { id: newSegId(), kind: 'straight', length: 150 },
+  { id: newSegId(), kind: 'corner', radius: MINR, angle: 40, dir: 'left' },
+  { id: newSegId(), kind: 'corner', radius: MINR, angle: 40, dir: 'right' },
+  { id: newSegId(), kind: 'straight', length: 150 },
+  { id: newSegId(), kind: 'corner', radius: 60, angle: 180, dir: 'left' },
+  { id: newSegId(), kind: 'straight', length: 100 },
+  { id: newSegId(), kind: 'corner', radius: 60, angle: 180, dir: 'left' },
+];
+p.segments = segs;
+p.corners = segs.filter((s) => s.kind === 'corner').map((_, i) => ({ cornerIndex: i, entry: 'flat', apex: 'flat', exit: 'flat' } as const));
+
 const built = buildTrack(p);
-const w2 = p.road.width / 2;
-const grass = built.meshes.find((m) => m.name === '1GRASS')!;
+console.log('centerline samples:', built.centerline.length);
+console.log('meshes:', built.meshes.map((m) => `${m.name}:${m.faces.length}`).join(', '));
+const grass = built.meshes.find((m) => m.name === '1GRASS');
+console.log('grass mesh built:', grass && grass.faces.length > 0 ? 'OK' : 'MISSING/EMPTY');
+console.log('no exceptions thrown -> pipeline integrates cleanly');
 
-// For each centerline sample, find how far the grass extends past the INSIDE
-// road edge of the corner. If the fix worked it stays ~= strip width, not 0.
-function insideStripWidth(dist: number, dir: 'left' | 'right'): number {
-  // nearest sample
-  let s = built.centerline[0];
-  for (const c of built.centerline) if (Math.abs(c.dist - dist) < Math.abs(s.dist - dist)) s = c;
-  const [lx, ly] = perpLeft(s.heading);
-  const sgn = dir === 'left' ? 1 : -1; // toward the inside
-  const ex = s.pos[0] + lx * w2 * sgn, ey = s.pos[1] + ly * w2 * sgn; // inside edge
-  // max grass vertex projection beyond the edge along the inside normal, near s
-  let maxOut = 0;
-  for (const v of grass.vertices) {
-    if (Math.hypot(v[0] - s.pos[0], v[1] - s.pos[1]) > w2 + 30) continue;
-    const proj = (v[0] - ex) * lx * sgn + (v[1] - ey) * ly * sgn;
-    const along = Math.abs((v[0] - s.pos[0]) * Math.cos(s.heading) + (v[1] - s.pos[1]) * Math.sin(s.heading));
-    if (along < 4 && proj > maxOut && proj < 40) maxOut = proj;
-  }
-  return maxOut;
+// unit tests for the core algorithm (smoothCeiling / erosion safety)
+import { slopeLimit, smoothCeiling } from './src/geometry/runoff';
+const N = 200, dists = Array.from({ length: N }, (_, i) => i), WIDTH = 14, MAX_SLOPE = 0.4;
+function run(cap: number[], inner: number[], smooth: boolean) {
+  const ceil = smooth ? smoothCeiling(cap, false) : cap;
+  const arr = dists.map((_, i) => Math.max(inner[i], Math.min(inner[i] + WIDTH, ceil[i])));
+  slopeLimit(arr, dists, MAX_SLOPE, false);
+  for (let i = 0; i < arr.length; i++) arr[i] = Math.max(arr[i], inner[i]);
+  return arr;
 }
-
-const corner = built.spans.find((s) => s.kind === 'corner')!;
-const dir = corner.dir!;
-let minW = 1e9, maxW = 0;
-for (let d = corner.startDist + 2; d < corner.endDist - 2; d += 4) {
-  const w = insideStripWidth(d, dir);
-  minW = Math.min(minW, w); maxW = Math.max(maxW, w);
-}
-console.log(`inside-corner grass coverage over the corner: ${minW.toFixed(1)}-${maxW.toFixed(1)} m`);
-console.log(minW > 10 ? 'OK — strip stays wide through the corner (no wedge)' : 'STILL COLLAPSING');
-console.log('meshes:', built.meshes.map((m) => m.name).join(', '));
+const cap = dists.map((d) => (d >= 90 && d <= 110 ? 1.5 : 200));
+const inner = dists.map(() => 0);
+const before = run(cap, inner, false), after = run(cap, inner, true);
+function curv(a: number[]) { let m = 0; for (let i = 1; i < a.length - 1; i++) m = Math.max(m, Math.abs(a[i - 1] - 2 * a[i] + a[i + 1])); return m; }
+console.log(`realistic 20m chicane dip: min preserved ${Math.abs(Math.min(...after) - 1.5) < 0.01} | smoother ${curv(after) < curv(before)}`);

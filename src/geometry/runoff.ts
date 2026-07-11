@@ -213,7 +213,7 @@ export function computeOverlapCap(
 // Reduce an offset profile so it changes no faster than `maxSlope` per metre.
 // Reducing-only, so the result always stays within the original caps (never on
 // the track), but the offset ramps smoothly in/out of tight spots — no kinks.
-function slopeLimit(offsets: number[], dists: number[], maxSlope: number, closed: boolean): void {
+export function slopeLimit(offsets: number[], dists: number[], maxSlope: number, closed: boolean): void {
   const n = offsets.length;
   if (n < 2) return;
   const passes = closed ? 3 : 1;
@@ -235,6 +235,53 @@ function slopeLimit(offsets: number[], dists: number[], maxSlope: number, closed
 }
 
 const MAX_OFFSET_SLOPE = 0.4; // m of offset change per m along the track
+
+// Windowed minimum (morphological erosion): widens a dip so it spans at least
+// `radius` samples on each side of its narrowest point. Needed before blurring
+// — a dip only 1-2 samples wide would otherwise be averaged away entirely by
+// the box blur below, silently deleting a real safety constraint (the point
+// closest to the arc centre / another track part).
+function erodeMin(cap: number[], radius: number, closed: boolean): number[] {
+  const n = cap.length;
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    let m = cap[i];
+    for (let k = 1; k <= radius; k++) {
+      const lo = i - k, hi = i + k;
+      if (closed) {
+        m = Math.min(m, cap[(lo + n) % n], cap[hi % n]);
+      } else {
+        if (lo >= 0) m = Math.min(m, cap[lo]);
+        if (hi < n) m = Math.min(m, cap[hi]);
+      }
+    }
+    out[i] = m;
+  }
+  return out;
+}
+
+// Round off a tight cap dip (e.g. two back-to-back min-radius chicane corners)
+// BEFORE it's used as a ceiling. Smoothing the ceiling itself — rather than
+// smoothing the output and re-clamping to the original hard ceiling — avoids
+// re-introducing a cliff exactly at the dip's boundary (clamping a rounded
+// curve back down to a razor-flat plateau just moves the sharp corner to the
+// clamp edge instead of removing it). Erosion first guarantees even a
+// knife-narrow dip survives the blur at close to its true value; the blur then
+// rounds the transition in and out into a curve instead of a straight wedge.
+export function smoothCeiling(cap: number[], closed: boolean, passes = 6, erosion = 4): number[] {
+  const SENTINEL = 1000; // far beyond any real strip/wall width — stands in for Infinity
+  const clipped = cap.map((v) => Math.min(v, SENTINEL));
+  const arr = erodeMin(clipped, erosion, closed);
+  for (let p = 0; p < passes; p++) {
+    const prev = arr.slice();
+    for (let i = 0; i < arr.length; i++) {
+      const im1 = i > 0 ? i - 1 : closed ? arr.length - 1 : i;
+      const ip1 = i < arr.length - 1 ? i + 1 : closed ? 0 : i;
+      arr[i] = (prev[im1] + prev[i] * 2 + prev[ip1]) / 4;
+    }
+  }
+  return arr;
+}
 
 // A rectangular corridor (escape road) where auto walls must not be built.
 export interface WallFreeCorridor {
@@ -281,22 +328,21 @@ export function buildRunoff(
   const outer: Record<'left' | 'right', number[]> = { left: [], right: [] };
   const wallOff: Record<'left' | 'right', number[]> = { left: [], right: [] };
   for (const side of ['left', 'right'] as const) {
-    const arr = samples.map((_, i) => {
-      const inner = innerAt(i, side);
-      const cap = Math.min(curvCap[i][side], overlapCap[i]);
-      return Math.max(inner, Math.min(inner + resolved[i][side].width, cap));
-    });
+    const innerArr = samples.map((_, i) => innerAt(i, side));
+    const capArr = samples.map((_, i) => Math.min(curvCap[i][side], overlapCap[i]));
+    // Round off tight dips (e.g. a chicane) BEFORE they become a hard ceiling —
+    // smoothing the ceiling itself, not the output, avoids reintroducing a
+    // cliff at the dip's edge (see smoothCeiling's comment).
+    const smoothCap = smoothCeiling(capArr, closed);
+
+    const arr = samples.map((_, i) => Math.max(innerArr[i], Math.min(innerArr[i] + resolved[i][side].width, smoothCap[i])));
     slopeLimit(arr, dists, MAX_OFFSET_SLOPE, closed);
-    for (let i = 0; i < arr.length; i++) arr[i] = Math.max(arr[i], innerAt(i, side));
+    for (let i = 0; i < arr.length; i++) arr[i] = Math.max(arr[i], innerArr[i]);
     outer[side] = arr;
 
-    const warr = samples.map((_, i) => {
-      const inner = innerAt(i, side);
-      const cap = Math.min(curvCap[i][side], overlapCap[i]);
-      return Math.max(inner, Math.min(inner + resolved[i][side].wallDist, cap));
-    });
+    const warr = samples.map((_, i) => Math.max(innerArr[i], Math.min(innerArr[i] + resolved[i][side].wallDist, smoothCap[i])));
     slopeLimit(warr, dists, MAX_OFFSET_SLOPE, closed);
-    for (let i = 0; i < warr.length; i++) warr[i] = Math.max(warr[i], innerAt(i, side));
+    for (let i = 0; i < warr.length; i++) warr[i] = Math.max(warr[i], innerArr[i]);
     wallOff[side] = warr;
   }
   const outerAt = (i: number, side: 'left' | 'right') => outer[side][i];
