@@ -164,11 +164,10 @@ export function computeCurvatureCap(
   width: number,
 ): SideOffset[] {
   const half = width / 2;
-  // Keep the inside apron at least CLEARANCE metres from the arc centre. Past
-  // that, the per-sample offset points crowd together near the centre and the
-  // tiny triangles overlap into a messy "spike" at the apex of tight corners.
-  // The base ground plane fills whatever the apron no longer covers.
-  const CLEARANCE = 6;
+  // Keep the inside strip at least CLEARANCE metres from the arc centre (past
+  // it the offset points fold into a spike). Small, so the strip keeps its
+  // full width through all but the tightest corners — uniform band, no wedges.
+  const CLEARANCE = 1.5;
   return perSample.map((c) => {
     if (!c) return { left: Infinity, right: Infinity };
     const cap = Math.max(0, c.radius - half - CLEARANCE);

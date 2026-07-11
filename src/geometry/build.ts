@@ -116,9 +116,10 @@ export function buildTrack(project: TrackProject): BuiltTrack {
       return { ...base, wall: false };
     }
     if (corner && side === corner.dir) {
-      // Inside of a corner: covered by the concentric infield fill instead of
-      // the strip (which went lumpy on hairpins). No strip, no wall.
-      return { ...base, width: 0, wall: false };
+      // Inside of a corner: the strip RUNS CONTINUOUSLY (zeroing it here made
+      // ugly tapered wedges at every corner); the curvature cap alone keeps it
+      // off the arc centre on tight corners. Just no wall on the inside.
+      return { ...base, wall: false };
     }
     return base;
   };
