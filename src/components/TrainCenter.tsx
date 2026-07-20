@@ -65,6 +65,22 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
     if (label) await start('bank_model.py', [label]);
   };
 
+  // Close out the current driver under a name, then start a fresh one — either
+  // reusing the existing sim-pretrained base (fast) or retraining that base
+  // from scratch first (slower, for when the reward/calibration changed).
+  // Recorded laps/demos are never touched by this.
+  const saveAndReset = async () => {
+    const label = window.prompt('Name this training run before starting a new one:', '');
+    if (!label) return;
+    const choice = await desktop!.confirm(
+      'Start a new training run',
+      `"${label}" will be archived (nothing is deleted). How should the new run begin?`,
+      ['Keep pretrained base (fast)', 'Redo pretraining from scratch (slower)', 'Cancel'],
+    );
+    if (choice === 2 || choice === undefined) return;
+    await start('save_and_reset.py', [label, choice === 0 ? 'keep' : 'redo']);
+  };
+
   const running = status.running;
   const lv = live.live;
   const fresh = running && lv; // live.json is only meaningful while a script runs
@@ -130,6 +146,14 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                 <button className="small" onClick={bank} disabled={running || !live.model}>Bank checkpoint</button>
                 <span className="muted">{live.banked.length} banked</span>
               </div>
+              <button
+                className="small train-reset-btn"
+                onClick={saveAndReset}
+                disabled={running}
+                title="Archive this driver under a name, then start a new one from scratch"
+              >
+                💾 Save & start new training…
+              </button>
             </div>
 
             <div className="train-card">

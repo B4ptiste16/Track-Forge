@@ -201,7 +201,7 @@ const RL_DEFAULT_AC = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assett
 const RL_LOCAL = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'ac-rl');
 const RL_STOP_FLAG = path.join(RL_LOCAL, 'stop.flag');
 // Only these scripts may be launched from the app (never arbitrary commands).
-const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py']);
+const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py', 'save_and_reset.py']);
 
 function rlDir() {
   return loadSettings().acRlDir || RL_DEFAULT_DIR;
