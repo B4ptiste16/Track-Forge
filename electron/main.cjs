@@ -214,24 +214,43 @@ function rlPython() {
   return fs.existsSync(p) ? p : null;
 }
 
-let rlProc = null; // { child, script, startedAt }
+// Up to TWO processes at once — one LIVE (needs AC + the virtual gamepad:
+// train.py / drive.py) and one SIM (train_sim.py, no AC). That's how two
+// tracks train at the same time: live AC on one, sim focus on the other.
+// Per-track model folders (ac-rl models/tracks/<track>/) make this safe —
+// they never write to the same files.
+const RL_LIVE_SCRIPTS = new Set(['train.py', 'drive.py']);
+const rlProcs = new Map(); // pid -> { child, script, args, startedAt }
 const rlLogLines = []; // rolling buffer so the page can show history on mount
-function rlLog(line) {
+function rlLog(line, tag = '') {
   for (const l of String(line).split(/\r?\n/)) {
     if (!l.trim()) continue;
-    rlLogLines.push(l);
+    const out = tag ? `${tag} ${l}` : l;
+    rlLogLines.push(out);
     if (rlLogLines.length > 400) rlLogLines.shift();
-    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('rl:log', l);
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('rl:log', out);
   }
+}
+// When live + sim run together, prefix their output so the log stays readable.
+function rlTag(script) {
+  if (rlProcs.size < 2) return '';
+  return script === 'train_sim.py' ? '[sim]' : '[AC]';
 }
 function rlSendStatus() {
   const s = rlStatus();
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('rl:status', s);
 }
 function rlStatus() {
-  return rlProc
-    ? { running: true, script: rlProc.script, pid: rlProc.child.pid, startedAt: rlProc.startedAt }
-    : { running: false };
+  return {
+    running: [...rlProcs.values()].map((p) => ({
+      pid: p.child.pid, script: p.script, args: p.args, startedAt: p.startedAt,
+    })),
+  };
+}
+// Per-script stop flags so stopping the sim doesn't stop live training (and
+// vice versa). The bare stop.flag remains "stop everything" for the python side.
+function rlStopFlagFor(script) {
+  return path.join(RL_LOCAL, `stop.${script}.flag`);
 }
 
 ipcMain.handle('rl:status', () => rlStatus());
@@ -263,78 +282,152 @@ ipcMain.handle('rl:listTracks', () => {
   return { ok: true, tracks: out };
 });
 
-// Start one of the ac-rl python scripts. One process at a time.
+// Start one of the ac-rl python scripts. Concurrency rules: one LIVE script
+// (train.py/drive.py — they share AC and the virtual gamepad), one sim
+// training, and utility one-shots (bank/save_and_reset) only while idle
+// (they move the model files the others might be writing).
 ipcMain.handle('rl:start', (_e, { script, args }) => {
-  if (rlProc) return { ok: false, error: `${rlProc.script} is already running — stop it first.` };
   if (!RL_SCRIPTS.has(script)) return { ok: false, error: `Unknown script: ${script}` };
+  const running = [...rlProcs.values()];
+  if (RL_LIVE_SCRIPTS.has(script) && running.some((p) => RL_LIVE_SCRIPTS.has(p.script))) {
+    return { ok: false, error: 'A live AC script is already running — stop it first (only one can use AC and the controller).' };
+  }
+  if (script === 'train_sim.py' && running.some((p) => p.script === 'train_sim.py')) {
+    return { ok: false, error: 'Sim training is already running — stop it first.' };
+  }
+  if (!RL_LIVE_SCRIPTS.has(script) && script !== 'train_sim.py' && running.length > 0) {
+    return { ok: false, error: `${script} moves model files around — stop the running scripts first.` };
+  }
   const py = rlPython();
   if (!py) return { ok: false, error: 'Python venv not found.\nRun once in a terminal:  cd ' + rlDir() + '  &&  python setup.py' };
   const dir = rlDir();
   if (!fs.existsSync(path.join(dir, script))) return { ok: false, error: `${script} not found in ${dir}` };
-  try { fs.rmSync(RL_STOP_FLAG, { force: true }); } catch { /* ignore */ }
+  try {
+    fs.rmSync(rlStopFlagFor(script), { force: true });
+    if (running.length === 0) fs.rmSync(RL_STOP_FLAG, { force: true }); // stale "stop everything"
+  } catch { /* ignore */ }
   const child = spawn(py, [script, ...(args || []).map(String)], {
     cwd: dir,
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  rlProc = { child, script, startedAt: Date.now() };
+  rlProcs.set(child.pid, { child, script, args: (args || []).map(String), startedAt: Date.now() });
   rlLog(`--- ${script} ${(args || []).join(' ')} started (pid ${child.pid}) ---`);
-  child.stdout.on('data', (d) => rlLog(d));
-  child.stderr.on('data', (d) => rlLog(d));
+  child.stdout.on('data', (d) => rlLog(d, rlTag(script)));
+  child.stderr.on('data', (d) => rlLog(d, rlTag(script)));
   child.on('exit', (code) => {
     rlLog(`--- ${script} exited (code ${code}) ---`);
-    rlProc = null;
+    rlProcs.delete(child.pid);
     rlSendStatus();
   });
   rlSendStatus();
   return { ok: true, pid: child.pid };
 });
 
-// Graceful stop: write the stop flag; train.py/drive.py notice it within a
-// step, save, and exit on their own. Escalate to a hard kill only if the
-// process is still alive well after any save should have finished.
-ipcMain.handle('rl:stop', () => {
-  if (!rlProc) return { ok: true, note: 'nothing running' };
-  const { child, script } = rlProc;
-  try {
-    fs.mkdirSync(RL_LOCAL, { recursive: true });
-    fs.writeFileSync(RL_STOP_FLAG, 'stop');
-  } catch { /* fall through to kill */ }
-  rlLog(`--- stop requested (${script}) — letting it save and exit... ---`);
-  setTimeout(() => {
-    if (rlProc && rlProc.child === child) {
-      rlLog('--- still running after 30s — force killing ---');
-      try { spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']); } catch { /* ignore */ }
-    }
-  }, 30_000);
+// Graceful stop of ONE process (by pid) or everything (no pid): write the
+// per-script stop flag; the script notices within a step, saves, and exits on
+// its own. Escalate to a hard kill only if it's still alive well after any
+// save should have finished.
+ipcMain.handle('rl:stop', (_e, { pid } = {}) => {
+  const targets = pid ? [rlProcs.get(pid)].filter(Boolean) : [...rlProcs.values()];
+  if (targets.length === 0) return { ok: true, note: 'nothing running' };
+  for (const t of targets) {
+    try {
+      fs.mkdirSync(RL_LOCAL, { recursive: true });
+      fs.writeFileSync(rlStopFlagFor(t.script), 'stop');
+    } catch { /* fall through to kill */ }
+    rlLog(`--- stop requested (${t.script}, pid ${t.child.pid}) — letting it save and exit... ---`);
+    const child = t.child;
+    setTimeout(() => {
+      if (rlProcs.has(child.pid)) {
+        rlLog(`--- ${t.script} still running after 30s — force killing ---`);
+        try { spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']); } catch { /* ignore */ }
+      }
+    }, 30_000);
+  }
   return { ok: true };
 });
 
-// Live training feed: telemetry the trainer writes ~10x/s + checkpoint info.
-let rlModelCache = { mtimeMs: 0, info: null };
-ipcMain.handle('rl:live', async () => {
+// Live training feed: telemetry the trainer writes ~10x/s + the SELECTED
+// track's checkpoint info (per-track bots: models/tracks/<track>/).
+const rlModelCache = new Map(); // track -> { mtimeMs, info }
+ipcMain.handle('rl:live', async (_e, { track } = {}) => {
   const out = { live: null, model: null, banked: [] };
   try {
     out.live = JSON.parse(fs.readFileSync(path.join(RL_LOCAL, 'live.json'), 'utf8'));
   } catch { /* trainer not running yet */ }
-  const modelPath = path.join(rlDir(), 'models', 'ac_sac.zip');
-  try {
-    const st = fs.statSync(modelPath);
-    if (st.mtimeMs !== rlModelCache.mtimeMs) {
-      const JSZip = require('jszip');
-      const zip = await JSZip.loadAsync(fs.readFileSync(modelPath));
-      const data = JSON.parse(await zip.file('data').async('string'));
-      rlModelCache = {
-        mtimeMs: st.mtimeMs,
-        info: { steps: data.num_timesteps || 0, savedAt: st.mtimeMs },
-      };
-    }
-    out.model = rlModelCache.info;
-  } catch { /* no checkpoint yet */ }
-  try {
-    out.banked = fs.readdirSync(path.join(rlDir(), 'models', 'banked')).filter((f) => f.endsWith('.zip'));
-  } catch { /* none banked */ }
+  if (track) {
+    const tdir = path.join(rlDir(), 'models', 'tracks', track);
+    const modelPath = path.join(tdir, 'ac_sac.zip');
+    try {
+      const st = fs.statSync(modelPath);
+      const cached = rlModelCache.get(track);
+      if (!cached || st.mtimeMs !== cached.mtimeMs) {
+        const JSZip = require('jszip');
+        const zip = await JSZip.loadAsync(fs.readFileSync(modelPath));
+        const data = JSON.parse(await zip.file('data').async('string'));
+        rlModelCache.set(track, {
+          mtimeMs: st.mtimeMs,
+          info: { steps: data.num_timesteps || 0, savedAt: st.mtimeMs },
+        });
+      }
+      out.model = rlModelCache.get(track).info;
+    } catch { /* no bot for this track yet */ }
+    try {
+      out.banked = fs.readdirSync(path.join(tdir, 'banked')).filter((f) => f.endsWith('.zip'));
+    } catch { /* none banked */ }
+    // Saved (archived) bots for THIS track: archive/saved_<track>_<label>_<ts>/
+    try {
+      const arch = path.join(rlDir(), 'archive');
+      const prefix = `saved_${track}_`;
+      out.saved = fs.readdirSync(arch, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name.startsWith(prefix)
+          && fs.existsSync(path.join(arch, e.name, 'ac_sac.zip')))
+        .map((e) => {
+          const m = e.name.match(/^saved_.*_(\d{8})_(\d{6})$/);
+          const label = e.name.slice(prefix.length).replace(/_\d{8}_\d{6}$/, '');
+          const date = m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)} ${m[2].slice(0, 2)}:${m[2].slice(2, 4)}` : '';
+          return { folder: e.name, label, date };
+        })
+        .sort((a, b) => b.folder.localeCompare(a.folder));
+    } catch { out.saved = []; }
+  }
   return out;
+});
+
+// Bring a saved bot back as the track's live bot. The current bot (if any) is
+// itself archived first, so restoring never destroys anything.
+ipcMain.handle('rl:restoreSaved', (_e, { track, folder }) => {
+  if (rlProcs.size > 0) return { ok: false, error: 'Stop the running scripts first — restoring moves model files.' };
+  if (!track || !folder || folder.includes('/') || folder.includes('\\') || folder.includes('..')
+    || !folder.startsWith(`saved_${track}_`)) {
+    return { ok: false, error: 'Invalid saved-bot name.' };
+  }
+  const src = path.join(rlDir(), 'archive', folder);
+  const tdir = path.join(rlDir(), 'models', 'tracks', track);
+  if (!fs.existsSync(path.join(src, 'ac_sac.zip'))) return { ok: false, error: `${folder} has no ac_sac.zip.` };
+  try {
+    fs.mkdirSync(tdir, { recursive: true });
+    // archive whatever is live right now before overwriting it
+    if (fs.existsSync(path.join(tdir, 'ac_sac.zip'))) {
+      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15).replace(/^(\d{8})(\d{6}).*/, '$1_$2');
+      const dest = path.join(rlDir(), 'archive', `saved_${track}_replaced_${stamp}`);
+      fs.mkdirSync(dest, { recursive: true });
+      fs.renameSync(path.join(tdir, 'ac_sac.zip'), path.join(dest, 'ac_sac.zip'));
+      if (fs.existsSync(path.join(tdir, 'ac_sac_buffer.pkl'))) {
+        fs.renameSync(path.join(tdir, 'ac_sac_buffer.pkl'), path.join(dest, 'ac_sac_buffer.pkl'));
+      }
+    }
+    fs.copyFileSync(path.join(src, 'ac_sac.zip'), path.join(tdir, 'ac_sac.zip'));
+    if (fs.existsSync(path.join(src, 'ac_sac_buffer.pkl'))) {
+      fs.copyFileSync(path.join(src, 'ac_sac_buffer.pkl'), path.join(tdir, 'ac_sac_buffer.pkl'));
+    }
+    rlModelCache.delete(track);
+    rlLog(`--- restored saved bot '${folder}' as the live bot for ${track} ---`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 });
 
 // Launch AC in a practice session on the chosen track. Vanilla AC has no
@@ -342,6 +435,9 @@ ipcMain.handle('rl:live', async () => {
 // take the user's last (known-good) race.ini, swap only the track, and start
 // acs.exe. Requires AC to have been launched normally at least once.
 ipcMain.handle('rl:launchAC', (_e, { track }) => {
+  if ([...rlProcs.values()].some((p) => RL_LIVE_SCRIPTS.has(p.script))) {
+    return { ok: false, error: 'A live script is using AC right now — stop it before launching AC on another track.' };
+  }
   const iniPath = path.join(app.getPath('documents'), 'Assetto Corsa', 'cfg', 'race.ini');
   if (!fs.existsSync(iniPath)) {
     return { ok: false, error: 'race.ini not found — start AC normally once (any track), then this button can re-launch it on any chosen track.' };

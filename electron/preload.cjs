@@ -20,11 +20,12 @@ contextBridge.exposeInMainWorld('desktop', {
   // --- AI training (ac-rl orchestration) ---
   rlListTracks: () => ipcRenderer.invoke('rl:listTracks'),
   rlStart: (script, args) => ipcRenderer.invoke('rl:start', { script, args }),
-  rlStop: () => ipcRenderer.invoke('rl:stop'),
+  rlStop: (pid) => ipcRenderer.invoke('rl:stop', { pid }),
   rlStatus: () => ipcRenderer.invoke('rl:status'),
-  rlLive: () => ipcRenderer.invoke('rl:live'),
+  rlLive: (track) => ipcRenderer.invoke('rl:live', { track }),
   rlLogHistory: () => ipcRenderer.invoke('rl:logHistory'),
   rlLaunchAC: (track) => ipcRenderer.invoke('rl:launchAC', { track }),
+  rlRestoreSaved: (track, folder) => ipcRenderer.invoke('rl:restoreSaved', { track, folder }),
   // These return an unsubscribe fn so a page can clean up on unmount (the
   // training page mounts/unmounts as the user navigates home and back).
   onRlLog: (cb) => {

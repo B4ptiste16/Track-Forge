@@ -29,11 +29,12 @@ export interface DesktopApi {
   // --- AI training (ac-rl orchestration) ---
   rlListTracks(): Promise<{ ok: boolean; error?: string; tracks: RlTrack[] }>;
   rlStart(script: string, args?: (string | number)[]): Promise<{ ok: boolean; error?: string; pid?: number }>;
-  rlStop(): Promise<{ ok: boolean; note?: string }>;
+  rlStop(pid?: number): Promise<{ ok: boolean; note?: string }>;
   rlStatus(): Promise<RlStatus>;
-  rlLive(): Promise<RlLive>;
+  rlLive(track?: string): Promise<RlLive>;
   rlLogHistory(): Promise<string[]>;
   rlLaunchAC(track: string): Promise<{ ok: boolean; error?: string }>;
+  rlRestoreSaved(track: string, folder: string): Promise<{ ok: boolean; error?: string }>;
   onRlLog(cb: (line: string) => void): () => void;
   onRlStatus(cb: (s: RlStatus) => void): () => void;
 }
@@ -44,11 +45,15 @@ export interface RlTrack {
   hasAi: boolean;
 }
 
+export interface RlProc {
+  pid: number;
+  script: string;
+  args: string[];
+  startedAt: number;
+}
+
 export interface RlStatus {
-  running: boolean;
-  script?: string;
-  pid?: number;
-  startedAt?: number;
+  running: RlProc[];
 }
 
 export interface RlLive {
@@ -60,6 +65,13 @@ export interface RlLive {
   } | null;
   model: { steps: number; savedAt: number } | null;
   banked: string[];
+  saved?: RlSavedBot[];
+}
+
+export interface RlSavedBot {
+  folder: string;
+  label: string;
+  date: string;
 }
 
 export interface UpdateStatus {
