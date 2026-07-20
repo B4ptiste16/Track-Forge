@@ -1,14 +1,27 @@
-AC TRACK FORGE — PROJECT HANDOFF (read this first in a new chat)
+AC BAPTOU — PROJECT HANDOFF (read this first in a new chat)
 ================================================================
-What it is: a desktop app to DESIGN Assetto Corsa circuits and export them.
-You draw a centerline/segments; it builds the track mesh, kerbs, trackside
-strips, pit lane, buildings, and the AI racing line (fast_lane.ai), then exports
-an FBX + config so the track loads in AC (and its ai line feeds the AC-RL bot).
+(REBRANDED from "AC Track Forge" to "AC BAPTOU" in v0.8.0 — user's request.
+productName/titles say AC BAPTOU; repo, appId and package name are UNCHANGED
+so auto-update keeps working. Same app, now TWO sections behind a home page:)
+1) TRACK BUILDER — design AC circuits: track mesh, kerbs, trackside strips,
+   pit lane, buildings, AI line (fast_lane.ai); export FBX + config for AC.
+2) AI TRAINING (v0.8.0, src/components/TrainCenter.tsx + rl:* IPC in
+   electron/main.cjs) — in-app cockpit for the AC-RL python project
+   (C:\Users\bapti\OneDrive\ac-rl, venv %LOCALAPPDATA%\ac-rl\venv):
+   - lists AC tracks that have ai/fast_lane.ai
+   - "Launch AC + Train" one click: swaps TRACK= in Documents\Assetto Corsa\
+     cfg\race.ini, starts acs.exe, starts train.py; train.py WAITS for a live
+     session (shared memory is all-zero until then) so order doesn't matter
+   - graceful stop: app writes %LOCALAPPDATA%\ac-rl\stop.flag, trainer saves
+     and exits on its own (30s later the app force-kills as backstop)
+   - live telemetry from %LOCALAPPDATA%\ac-rl\live.json, model steps read
+     from models/ac_sac.zip via jszip (cached by mtime), streamed stdout log
+   - only whitelisted scripts can run (RL_SCRIPTS set), one process at a time
 
 Stack: Electron (electron-builder NSIS, Windows ARM64) + electron-updater +
 React + TypeScript + Vite + three.js (Z-up) + jszip. Custom ASCII FBX 7.4 writer.
 Location: C:\Users\bapti\Documents\ac-track-forge
-GitHub: https://github.com/B4ptiste16/Track-Forge   Current version: v0.7.2
+GitHub: https://github.com/B4ptiste16/Track-Forge   Current version: v0.8.0
 
 BUILD / RELEASE:
 - Version bumps: use a bump SCRIPT FILE (bump*.js), NOT `node -e "..."` — PowerShell
