@@ -26,6 +26,40 @@ export interface DesktopApi {
   getVersion(): Promise<string>;
   checkForUpdates(): Promise<void>;
   onUpdateStatus(cb: (s: UpdateStatus) => void): void;
+  // --- AI training (ac-rl orchestration) ---
+  rlListTracks(): Promise<{ ok: boolean; error?: string; tracks: RlTrack[] }>;
+  rlStart(script: string, args?: (string | number)[]): Promise<{ ok: boolean; error?: string; pid?: number }>;
+  rlStop(): Promise<{ ok: boolean; note?: string }>;
+  rlStatus(): Promise<RlStatus>;
+  rlLive(): Promise<RlLive>;
+  rlLogHistory(): Promise<string[]>;
+  rlLaunchAC(track: string): Promise<{ ok: boolean; error?: string }>;
+  onRlLog(cb: (line: string) => void): () => void;
+  onRlStatus(cb: (s: RlStatus) => void): () => void;
+}
+
+export interface RlTrack {
+  id: string;
+  name: string;
+  hasAi: boolean;
+}
+
+export interface RlStatus {
+  running: boolean;
+  script?: string;
+  pid?: number;
+  startedAt?: number;
+}
+
+export interface RlLive {
+  live: {
+    reward?: number; ep_return?: number; episode?: number; trained?: number;
+    step?: number; speed?: number; ds?: number; gear?: number; progress?: number;
+    lat?: number; off?: number; damage?: number; steer?: number; gas?: number;
+    brake?: number; note?: string;
+  } | null;
+  model: { steps: number; savedAt: number } | null;
+  banked: string[];
 }
 
 export interface UpdateStatus {

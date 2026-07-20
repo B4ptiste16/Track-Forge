@@ -1,8 +1,8 @@
 {
   "name": "ac-track-forge",
   "private": true,
-  "version": "0.7.2",
-  "description": "Design Assetto Corsa circuits and export a drivable track package.",
+  "version": "0.8.0",
+  "description": "AC BAPTOU - build Assetto Corsa tracks and train an AI driver on them.",
   "author": "B4ptiste16",
   "type": "module",
   "main": "electron/main.cjs",
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.actrackforge.app",
-    "productName": "AC Track Forge",
+    "productName": "AC BAPTOU",
     "icon": "build/icon.png",
     "files": [
       "dist/**/*",

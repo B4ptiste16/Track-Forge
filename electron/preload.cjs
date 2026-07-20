@@ -17,4 +17,24 @@ contextBridge.exposeInMainWorld('desktop', {
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   onUpdateStatus: (cb) => ipcRenderer.on('update:status', (_e, s) => cb(s)),
+  // --- AI training (ac-rl orchestration) ---
+  rlListTracks: () => ipcRenderer.invoke('rl:listTracks'),
+  rlStart: (script, args) => ipcRenderer.invoke('rl:start', { script, args }),
+  rlStop: () => ipcRenderer.invoke('rl:stop'),
+  rlStatus: () => ipcRenderer.invoke('rl:status'),
+  rlLive: () => ipcRenderer.invoke('rl:live'),
+  rlLogHistory: () => ipcRenderer.invoke('rl:logHistory'),
+  rlLaunchAC: (track) => ipcRenderer.invoke('rl:launchAC', { track }),
+  // These return an unsubscribe fn so a page can clean up on unmount (the
+  // training page mounts/unmounts as the user navigates home and back).
+  onRlLog: (cb) => {
+    const h = (_e, line) => cb(line);
+    ipcRenderer.on('rl:log', h);
+    return () => ipcRenderer.removeListener('rl:log', h);
+  },
+  onRlStatus: (cb) => {
+    const h = (_e, s) => cb(s);
+    ipcRenderer.on('rl:status', h);
+    return () => ipcRenderer.removeListener('rl:status', h);
+  },
 });

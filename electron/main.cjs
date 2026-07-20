@@ -187,6 +187,183 @@ ipcMain.handle('dialog:confirm', async (e, { message, detail, buttons }) => {
   return r.response;
 });
 
+// ============================================================================
+// AI TRAINING (AC-RL integration) — the app is the cockpit for the RL driver.
+// The python project lives in its own folder (OneDrive-synced); this section
+// only ORCHESTRATES it: pick a track, launch AC on it, start/stop the training
+// scripts, and stream their output + live telemetry back to the renderer.
+// ============================================================================
+
+const RL_DEFAULT_DIR = 'C:\\Users\\bapti\\OneDrive\\ac-rl';
+const RL_DEFAULT_AC = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa';
+// The trainer and the app rendezvous through this local (non-synced) folder:
+// live.json (telemetry out), stop.flag (graceful stop in), episodes.json.
+const RL_LOCAL = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'ac-rl');
+const RL_STOP_FLAG = path.join(RL_LOCAL, 'stop.flag');
+// Only these scripts may be launched from the app (never arbitrary commands).
+const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py']);
+
+function rlDir() {
+  return loadSettings().acRlDir || RL_DEFAULT_DIR;
+}
+function rlAcRoot() {
+  return loadSettings().acRoot || RL_DEFAULT_AC;
+}
+function rlPython() {
+  const p = path.join(process.env.LOCALAPPDATA || '', 'ac-rl', 'venv', 'Scripts', 'python.exe');
+  return fs.existsSync(p) ? p : null;
+}
+
+let rlProc = null; // { child, script, startedAt }
+const rlLogLines = []; // rolling buffer so the page can show history on mount
+function rlLog(line) {
+  for (const l of String(line).split(/\r?\n/)) {
+    if (!l.trim()) continue;
+    rlLogLines.push(l);
+    if (rlLogLines.length > 400) rlLogLines.shift();
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('rl:log', l);
+  }
+}
+function rlSendStatus() {
+  const s = rlStatus();
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('rl:status', s);
+}
+function rlStatus() {
+  return rlProc
+    ? { running: true, script: rlProc.script, pid: rlProc.child.pid, startedAt: rlProc.startedAt }
+    : { running: false };
+}
+
+ipcMain.handle('rl:status', () => rlStatus());
+ipcMain.handle('rl:logHistory', () => rlLogLines.slice());
+
+// Scan AC's content/tracks for tracks the bot can train on (= they have an AI
+// line). Returns display name from ui_track.json when available.
+ipcMain.handle('rl:listTracks', () => {
+  const root = path.join(rlAcRoot(), 'content', 'tracks');
+  const out = [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (err) {
+    return { ok: false, error: `AC tracks folder not found:\n${root}\n(${err.message})`, tracks: [] };
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const dir = path.join(root, e.name);
+    const hasAi = fs.existsSync(path.join(dir, 'ai', 'fast_lane.ai'));
+    let name = e.name;
+    try {
+      const ui = JSON.parse(fs.readFileSync(path.join(dir, 'ui', 'ui_track.json'), 'utf8'));
+      if (ui.name) name = ui.name;
+    } catch { /* keep folder name */ }
+    out.push({ id: e.name, name, hasAi });
+  }
+  out.sort((a, b) => Number(b.hasAi) - Number(a.hasAi) || a.name.localeCompare(b.name));
+  return { ok: true, tracks: out };
+});
+
+// Start one of the ac-rl python scripts. One process at a time.
+ipcMain.handle('rl:start', (_e, { script, args }) => {
+  if (rlProc) return { ok: false, error: `${rlProc.script} is already running — stop it first.` };
+  if (!RL_SCRIPTS.has(script)) return { ok: false, error: `Unknown script: ${script}` };
+  const py = rlPython();
+  if (!py) return { ok: false, error: 'Python venv not found.\nRun once in a terminal:  cd ' + rlDir() + '  &&  python setup.py' };
+  const dir = rlDir();
+  if (!fs.existsSync(path.join(dir, script))) return { ok: false, error: `${script} not found in ${dir}` };
+  try { fs.rmSync(RL_STOP_FLAG, { force: true }); } catch { /* ignore */ }
+  const child = spawn(py, [script, ...(args || []).map(String)], {
+    cwd: dir,
+    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  rlProc = { child, script, startedAt: Date.now() };
+  rlLog(`--- ${script} ${(args || []).join(' ')} started (pid ${child.pid}) ---`);
+  child.stdout.on('data', (d) => rlLog(d));
+  child.stderr.on('data', (d) => rlLog(d));
+  child.on('exit', (code) => {
+    rlLog(`--- ${script} exited (code ${code}) ---`);
+    rlProc = null;
+    rlSendStatus();
+  });
+  rlSendStatus();
+  return { ok: true, pid: child.pid };
+});
+
+// Graceful stop: write the stop flag; train.py/drive.py notice it within a
+// step, save, and exit on their own. Escalate to a hard kill only if the
+// process is still alive well after any save should have finished.
+ipcMain.handle('rl:stop', () => {
+  if (!rlProc) return { ok: true, note: 'nothing running' };
+  const { child, script } = rlProc;
+  try {
+    fs.mkdirSync(RL_LOCAL, { recursive: true });
+    fs.writeFileSync(RL_STOP_FLAG, 'stop');
+  } catch { /* fall through to kill */ }
+  rlLog(`--- stop requested (${script}) — letting it save and exit... ---`);
+  setTimeout(() => {
+    if (rlProc && rlProc.child === child) {
+      rlLog('--- still running after 30s — force killing ---');
+      try { spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']); } catch { /* ignore */ }
+    }
+  }, 30_000);
+  return { ok: true };
+});
+
+// Live training feed: telemetry the trainer writes ~10x/s + checkpoint info.
+let rlModelCache = { mtimeMs: 0, info: null };
+ipcMain.handle('rl:live', async () => {
+  const out = { live: null, model: null, banked: [] };
+  try {
+    out.live = JSON.parse(fs.readFileSync(path.join(RL_LOCAL, 'live.json'), 'utf8'));
+  } catch { /* trainer not running yet */ }
+  const modelPath = path.join(rlDir(), 'models', 'ac_sac.zip');
+  try {
+    const st = fs.statSync(modelPath);
+    if (st.mtimeMs !== rlModelCache.mtimeMs) {
+      const JSZip = require('jszip');
+      const zip = await JSZip.loadAsync(fs.readFileSync(modelPath));
+      const data = JSON.parse(await zip.file('data').async('string'));
+      rlModelCache = {
+        mtimeMs: st.mtimeMs,
+        info: { steps: data.num_timesteps || 0, savedAt: st.mtimeMs },
+      };
+    }
+    out.model = rlModelCache.info;
+  } catch { /* no checkpoint yet */ }
+  try {
+    out.banked = fs.readdirSync(path.join(rlDir(), 'models', 'banked')).filter((f) => f.endsWith('.zip'));
+  } catch { /* none banked */ }
+  return out;
+});
+
+// Launch AC in a practice session on the chosen track. Vanilla AC has no
+// track CLI — it reads Documents\Assetto Corsa\cfg\race.ini at startup. We
+// take the user's last (known-good) race.ini, swap only the track, and start
+// acs.exe. Requires AC to have been launched normally at least once.
+ipcMain.handle('rl:launchAC', (_e, { track }) => {
+  const iniPath = path.join(app.getPath('documents'), 'Assetto Corsa', 'cfg', 'race.ini');
+  if (!fs.existsSync(iniPath)) {
+    return { ok: false, error: 'race.ini not found — start AC normally once (any track), then this button can re-launch it on any chosen track.' };
+  }
+  const acsPath = path.join(rlAcRoot(), 'acs.exe');
+  if (!fs.existsSync(acsPath)) return { ok: false, error: `acs.exe not found in ${rlAcRoot()}` };
+  try {
+    let ini = fs.readFileSync(iniPath, 'utf8');
+    const swap = (key, value) => {
+      const re = new RegExp(`^${key}=.*$`, 'm');
+      ini = re.test(ini) ? ini.replace(re, `${key}=${value}`) : ini;
+    };
+    swap('TRACK', track);
+    swap('CONFIG_TRACK', '');
+    fs.writeFileSync(iniPath, ini);
+    spawn(acsPath, [], { cwd: rlAcRoot(), detached: true, stdio: 'ignore' }).unref();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+});
+
 ipcMain.handle('update:check', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (isDev) {

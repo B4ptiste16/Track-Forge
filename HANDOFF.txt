@@ -1,0 +1,59 @@
+AC TRACK FORGE — PROJECT HANDOFF (read this first in a new chat)
+================================================================
+What it is: a desktop app to DESIGN Assetto Corsa circuits and export them.
+You draw a centerline/segments; it builds the track mesh, kerbs, trackside
+strips, pit lane, buildings, and the AI racing line (fast_lane.ai), then exports
+an FBX + config so the track loads in AC (and its ai line feeds the AC-RL bot).
+
+Stack: Electron (electron-builder NSIS, Windows ARM64) + electron-updater +
+React + TypeScript + Vite + three.js (Z-up) + jszip. Custom ASCII FBX 7.4 writer.
+Location: C:\Users\bapti\Documents\ac-track-forge
+GitHub: https://github.com/B4ptiste16/Track-Forge   Current version: v0.7.2
+
+BUILD / RELEASE:
+- Version bumps: use a bump SCRIPT FILE (bump*.js), NOT `node -e "..."` — PowerShell
+  mangles the quotes and builds the wrong version.
+- Every change the user cares about = full build + push + GitHub release (they run
+  from the installed app, not from source).
+- KNOWN RECURRING ISSUE: Windows Defender quarantines the unsigned
+  "AC Track Forge.exe" + ~8 DLLs (d3dcompiler_47, dxcompiler, dxil, ffmpeg,
+  libEGL, libGLESv2, vk_swiftshader, vulkan-1) after EACH install. Workaround so
+  far: copy them back from win-arm64-unpacked. User said on v0.7.2 "it still
+  doesnt work but well pass for now" — app-open is still flaky, unresolved.
+
+ARCHITECTURE — the geometry engine is the single source of truth:
+- src/types.ts        all data shapes. Kerbs have per-part widths
+                      (entryW/apexW/exitW) + unclamped apexLen. Trackside =
+                      {left,right,zones} of StripCfg{texture,width,wall,wallDist}
+                      with StripTexture grass|gravel|gravel_spaced|concrete.
+                      Building{}, SavedLayout, pit.structures.
+- src/state/project.ts  defaults, migration (legacy runoff -> zones), layout
+                      snapshot/apply, color map.
+- src/geometry/       kerbs.ts (tapered triangle ends, per-part widths),
+                      runoff.ts (continuous trackside strip; smoothCeiling with
+                      erosion-guarded blur to kill corner "wedge" artifacts),
+                      build.ts (assembles mesh, mergeInto), pitlane.ts,
+                      buildings.ts.
+- src/export/ai.ts    genFastLaneAi() — rotates spline so point 0 = start/finish
+                      line (fixes phantom ~3s laps + bot progress origin).
+- src/components/     App.tsx (tabbed right panel: Track/Kerbs/Trackside/
+                      Pit & Buildings + layout save/switch toolbar),
+                      TracksidePanel, FacilitiesPanel, SegmentEditor2D
+                      (modes: segment/zone/building). RunoffPanel was DELETED.
+
+STATE OF RECENT WORK (v0.7.0 -> v0.7.2):
+- DONE: continuous chooseable-texture trackside strips; tapered/per-part/free
+  kerbs; gravel_spaced (0.5m grass band); pit lane wall + boxes; buildings;
+  alternate layouts with save UI; radically reworked tabbed UI; AI line starts
+  at S/F line; timer/bot-progress measured from S/F.
+- FIXED across 0.7.1/0.7.2: corner "weird zones"/wedge artifacts in the strip
+  (strip stays continuous through corners; CLEARANCE 6->1.5; smoothCeiling blur
+  guarded by erodeMin so razor-thin safety dips aren't averaged away).
+- User's last word on wedges: "ITS still not perfect" — mostly good, not 100%.
+
+LIKELY NEXT ITEMS IF USER RETURNS:
+- The residual not-perfect corner strip smoothing.
+- The app-won't-open / Defender quarantine problem (still unresolved).
+
+Related project: AC-RL (the RL driver that consumes this app's fast_lane.ai).
+See HANDOFF.txt in C:\Users\bapti\OneDrive\ac-rl.

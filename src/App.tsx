@@ -16,12 +16,16 @@ import { KerbConfig } from './components/KerbConfig';
 import { TracksidePanel } from './components/TracksidePanel';
 import { FacilitiesPanel, newBuildingId } from './components/FacilitiesPanel';
 import { DesktopBar } from './components/DesktopBar';
+import { Home } from './components/Home';
+import { TrainCenter } from './components/TrainCenter';
 import { desktop } from './desktop';
 import './App.css';
 
 type Tab = 'track' | 'kerbs' | 'trackside' | 'facilities';
+type View = 'home' | 'build' | 'train';
 
 export default function App() {
+  const [view, setView] = useState<View>('home');
   const [project, setProject] = useState<TrackProject>(() => defaultProject());
   const [customize, setCustomize] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -140,10 +144,14 @@ export default function App() {
     { id: 'facilities', label: 'Pit & Buildings' },
   ];
 
+  if (view === 'home') return <Home onBuild={() => setView('build')} onTrain={() => setView('train')} />;
+  if (view === 'train') return <TrainCenter onHome={() => setView('home')} />;
+
   return (
     <div className="app">
       <header className="toolbar">
-        <div className="brand">🏁 AC Track Forge</div>
+        <button onClick={() => setView('home')} title="Back to home">⌂</button>
+        <div className="brand">🏁 AC BAPTOU</div>
         <div className="tb-group">
           <button onClick={() => { setProject(defaultProject()); setCustomize(false); }}>New</button>
           <button onClick={() => downloadProjectJson(project)}>Save project</button>
