@@ -104,6 +104,8 @@ interface KerbShape {
 
 function kerbShape(profile: KerbType): KerbShape | null {
   switch (profile) {
+    case 'painted': // flush painted stripes on the tarmac - no physical step
+      return { width: 1.2, cols: 2, hiFrom: 2, height: () => 0.004 };
     case 'flat':
       return { width: 1.0, cols: 2, hiFrom: 2, height: (t) => (t <= 0 ? 0 : 0.03) };
     case 'serrated':

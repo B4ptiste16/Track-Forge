@@ -45,9 +45,11 @@ export interface ResolvedSample {
   right: ResolvedSide;
 }
 
-export function runoffSurfaceName(type: RunoffType): string {
+export function runoffSurfaceName(type: RunoffType | string): string {
   if (type === 'gravel') return '1SAND';
   if (type === 'concrete') return '1CONCRETE';
+  if (type === 'tarmac') return '1TARMAC';
+  if (type === 'dirt') return '1DIRT';
   return '1GRASS'; // grass and the verge of a 'wall' section
 }
 

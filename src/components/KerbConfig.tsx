@@ -9,7 +9,7 @@ interface Props {
   onChange: (p: TrackProject) => void;
 }
 
-const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
+const KERBS: KerbType[] = ['none', 'painted', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
 type Part = 'entry' | 'apex' | 'exit';
 const INSIDE_SURFACES = ['grass', 'gravel', 'concrete'] as const;
 

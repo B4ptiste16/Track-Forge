@@ -94,6 +94,15 @@ export function FacilitiesPanel({ project, built, onChange }: Props) {
           <div className="bldg-grid">
             {num(b, 'x', 'x', -5000, 5000)}
             {num(b, 'y', 'y', -5000, 5000)}
+            <label className="bldg-num">style
+              <select value={b.kind ?? 'offices'}
+                onChange={(e) => setB(b.id, { kind: e.target.value as Building['kind'] })}>
+                <option value="offices">offices</option>
+                <option value="glass">glass tower</option>
+                <option value="brick">brick</option>
+                <option value="hangar">metal hangar</option>
+              </select>
+            </label>
             {num(b, 'rot', 'rot°', -180, 180, 5)}
             {num(b, 'w', 'len', 2, 200)}
             {num(b, 'd', 'depth', 2, 100)}

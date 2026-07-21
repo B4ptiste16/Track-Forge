@@ -99,7 +99,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     return cfg;
   };
   const stripSurface = (t: StripCfg['texture']): string =>
-    t === 'gravel' || t === 'gravel_spaced' ? '1SAND' : t === 'concrete' ? '1CONCRETE' : '1GRASS';
+    t === 'gravel' || t === 'gravel_spaced' ? '1SAND'
+      : t === 'concrete' ? '1CONCRETE'
+        : t === 'tarmac' ? '1TARMAC'
+          : t === 'dirt' ? '1DIRT'
+            : '1GRASS';
   const toResolved = (cfg: StripCfg): ResolvedSide => ({
     surface: stripSurface(cfg.texture),
     width: cfg.width,
@@ -225,7 +229,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
     ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
-    esc.poly, esc.bollards, ...decor, pitDeco.building, pitDeco.garage, bldgs,
+    esc.poly, esc.bollards, ...decor, pitDeco.building, pitDeco.garage, ...bldgs,
   ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own

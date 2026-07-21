@@ -13,6 +13,8 @@ const TEXTURES: { v: StripTexture; label: string }[] = [
   { v: 'gravel', label: 'gravel' },
   { v: 'gravel_spaced', label: 'gravel (0.5m grass gap)' },
   { v: 'concrete', label: 'concrete' },
+  { v: 'tarmac', label: 'tarmac (paved run-off)' },
+  { v: 'dirt', label: 'dirt' },
 ];
 
 export function TracksidePanel({ project, built, onChange }: Props) {

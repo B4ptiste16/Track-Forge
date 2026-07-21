@@ -87,7 +87,13 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
   setupAutoUpdate(win);
-  if (!isDev) autoUpdater.checkForUpdates().catch(() => {}); // silent check on launch
+  if (!isDev) {
+    autoUpdater.checkForUpdates().catch(() => {}); // silent check on launch
+    // Fully automatic updates: keep checking while the app runs, so a pushed
+    // release reaches the user without them doing anything (download is
+    // automatic; install happens on the restart prompt or on app quit).
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 30 * 60 * 1000);
+  }
 }
 
 app.whenReady().then(() => {

@@ -38,9 +38,14 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === '1PIT') return pal.pit;
   if (name === '1SAND') return pal.sand;
   if (name === '1CONCRETE') return pal.concrete;
+  if (name === '1TARMAC') return '#4a4c52'; // paved run-off: lighter than the racing surface
+  if (name === '1DIRT') return '#7a5d40';
   if (name === 'ROAD_LINE') return '#eef0f2';
   if (name === 'PIT_LINE') return '#f0f1f3';
   if (name === 'DECOR_BUILDING') return '#b9b3a8';
+  if (name === 'DECOR_BLDGLASS') return '#7d95a8';
+  if (name === 'DECOR_BLDBRICK') return '#9a6a52';
+  if (name === 'DECOR_BLDHANGAR') return '#aab0b6';
   if (name === 'DECOR_PITBLDG') return '#8e8b84';
   if (name === 'DECOR_GARAGE') return '#23252a';
   if (name === '1WALLPOLY') return '#e8d24a';
@@ -58,6 +63,7 @@ export const WALL_STYLE_COLORS: Record<string, string> = {
   tecpro: '#c8322e',
   blocks: '#33363b',
   armco: '#a7adb5',
+  hay: '#c9a94e',
 };
 
 // A small closed oval — a working starting point that already passes closure.

@@ -134,6 +134,7 @@ export function InputsPanel({ project, built, onChange }: Props) {
                 <option value="armco">Armco guardrail</option>
                 <option value="tecpro">TecPro barrier</option>
                 <option value="blocks">Tyre stacks</option>
+                <option value="hay">Hay bales</option>
               </select>
             </label>
           </>

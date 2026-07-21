@@ -45,9 +45,21 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   const [mode, setMode] = useState<EditorMode>('shape');
   const [draft, setDraft] = useState<[number, number][]>([]);
   const [zoneAnchor, setZoneAnchor] = useState<{ dist: number; side: 'left' | 'right' } | null>(null);
-  // Keep latest project/built/callback for window-level drag handlers.
-  const stateRef = useRef({ project, built, onSegmentsChange });
-  stateRef.current = { project, built, onSegmentsChange };
+  const [selected, setSelected] = useState<number | null>(null); // segIndex being edited inline
+  const [lockRest, setLockRest] = useState(true); // radius drags keep the rest of the track in place
+  const [resizeTick, setResizeTick] = useState(0);
+  // Keep latest project/built/callback + options for window-level drag handlers.
+  const stateRef = useRef({ project, built, onSegmentsChange, lockRest });
+  stateRef.current = { project, built, onSegmentsChange, lockRest };
+
+  // Redraw when the pane is resized (the divider above can be dragged).
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent) return;
+    const ro = new ResizeObserver(() => setResizeTick((t) => t + 1));
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -161,6 +173,23 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       ctx.strokeStyle = '#33e0ff'; ctx.lineWidth = 2; ctx.stroke();
     }
 
+    // Selected segment highlight (click-to-edit).
+    if (selected !== null) {
+      const span = built.spans.find((sp) => sp.segIndex === selected);
+      if (span) {
+        ctx.beginPath();
+        let started = false;
+        for (const s of samples) {
+          if (s.dist < span.startDist || s.dist > span.endDist) continue;
+          const x = sx(s.pos[0]), y = sy(s.pos[1]);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = '#ffd24a';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    }
+
     // S/F line.
     const sf = samples[nearestIndex(built, project.startFinishDist)];
     const [lx, ly] = perpLeft(sf.heading);
@@ -249,7 +278,7 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       for (const p of draft) { ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 3, 0, Math.PI * 2); ctx.fillStyle = '#ffd24a'; ctx.fill(); }
     }
     ctx.textAlign = 'left';
-  }, [project, built, mode, draft, zoneAnchor]);
+  }, [project, built, mode, draft, zoneAnchor, selected, resizeTick]);
 
   // ---- dragging ----
   const screenToWorld = (clientX: number, clientY: number): [number, number] => {
@@ -309,9 +338,30 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
     for (const h of handlesRef.current) {
       if (Math.hypot(h.sx - mx, h.sy - my) < 10) { hit = h; break; }
     }
-    if (!hit) return;
+    if (!hit) {
+      // No handle under the cursor: clicking near the track selects that
+      // SEGMENT for inline editing; clicking empty space deselects.
+      const [wx, wy] = screenToWorld(ev.clientX, ev.clientY);
+      const s = stateRef.current.built.centerline;
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < s.length; i++) {
+        const d = (s[i].pos[0] - wx) ** 2 + (s[i].pos[1] - wy) ** 2;
+        if (d < bd) { bd = d; bi = i; }
+      }
+      const nearPx = Math.sqrt(bd) * (txRef.current?.scale ?? 1);
+      if (nearPx < 18) {
+        const span = stateRef.current.built.spans.find(
+          (sp) => s[bi].dist >= sp.startDist && s[bi].dist <= sp.endDist,
+        );
+        setSelected(span ? span.segIndex : null);
+      } else {
+        setSelected(null);
+      }
+      return;
+    }
     const seg = stateRef.current.project.segments[hit.segIndex];
     if (!seg || seg.kind !== 'corner') return;
+    setSelected(hit.segIndex);
     dragRef.current = { h: hit, startWorld: screenToWorld(ev.clientX, ev.clientY), startRadius: seg.radius };
     window.addEventListener('mousemove', onWindowMove);
     window.addEventListener('mouseup', onWindowUp);
@@ -321,7 +371,7 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   const onWindowMove = (ev: MouseEvent) => {
     const drag = dragRef.current;
     if (!drag) return;
-    const { project: proj, onSegmentsChange: cb } = stateRef.current;
+    const { project: proj, onSegmentsChange: cb, lockRest: lock } = stateRef.current;
     const seg = proj.segments[drag.h.segIndex];
     if (!seg || seg.kind !== 'corner') return;
     const cur = screenToWorld(ev.clientX, ev.clientY);
@@ -334,6 +384,48 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       const dx = cur[0] - drag.startWorld[0], dy = cur[1] - drag.startWorld[1];
       const delta = (dx * plx + dy * ply) * outSign;
       next = { ...seg, radius: Math.max(5, Math.round((drag.startRadius + delta) * 10) / 10) };
+      // LOCAL REPROFILING: segments are chained, so changing a radius normally
+      // shifts everything after the corner. With the lock on, absorb the shift
+      // in the two NEIGHBOURING STRAIGHTS: the corner's chord displacement is
+      // linear in R (chord = R*K), so solving dL1*u_in + dL2*u_out = -dR*K
+      // keeps the corner's exit exactly where it was — the rest of the track
+      // does not move at all.
+      const i = drag.h.segIndex;
+      const prev = proj.segments[i - 1];
+      const nxt = proj.segments[i + 1];
+      if (lock && prev?.kind === 'straight' && nxt?.kind === 'straight' && next.kind === 'corner') {
+        const dR = next.radius - seg.radius;
+        if (dR !== 0) {
+          const th = (seg.angle * Math.PI) / 180;
+          const phi = (drag.h.dir === 'left' ? 1 : -1) * th;
+          const h0 = drag.h.entryHeading;
+          const u1: [number, number] = [Math.cos(h0), Math.sin(h0)];
+          const u2: [number, number] = [Math.cos(h0 + phi), Math.sin(h0 + phi)];
+          const [nx, ny] = perpLeft(h0);
+          const dSign = drag.h.dir === 'left' ? 1 : -1;
+          const n0: [number, number] = [nx * dSign, ny * dSign];
+          const rot: [number, number] = [
+            n0[0] * Math.cos(phi) - n0[1] * Math.sin(phi),
+            n0[0] * Math.sin(phi) + n0[1] * Math.cos(phi),
+          ];
+          const K: [number, number] = [n0[0] - rot[0], n0[1] - rot[1]];
+          const det = u1[0] * u2[1] - u1[1] * u2[0]; // sin(phi)
+          if (Math.abs(det) > 1e-3) {
+            const rx = -dR * K[0], ry = -dR * K[1];
+            const dL1 = (rx * u2[1] - ry * u2[0]) / det;
+            const dL2 = (u1[0] * ry - u1[1] * rx) / det;
+            const L1 = Math.round((prev.length + dL1) * 10) / 10;
+            const L2 = Math.round((nxt.length + dL2) * 10) / 10;
+            if (L1 >= 2 && L2 >= 2) {
+              const segs = proj.segments.map((sg, idx) =>
+                idx === i ? next : idx === i - 1 ? { ...prev, length: L1 } : idx === i + 1 ? { ...nxt, length: L2 } : sg,
+              );
+              cb(segs);
+              return;
+            }
+          }
+        }
+      }
     } else {
       // Drag the corner's exit around its arc to change the swept angle.
       const r = seg.radius;
@@ -386,7 +478,47 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
             <span className={c.closed ? 'ok' : 'warn'}>
               Gap: {c.gap.toFixed(1)} m · off {c.headingOff.toFixed(0)}° {c.closed ? '✓' : '✕'}
             </span>
-            <span className="muted hint">drag ● radius · ○ angle</span>
+            {selected !== null && project.segments[selected] ? (
+              <span className="seg-inline-edit">
+                {(() => {
+                  const sSel = project.segments[selected];
+                  const patch = (p: Partial<Segment>) =>
+                    onSegmentsChange(project.segments.map((sg, i) => (i === selected ? ({ ...sg, ...p } as Segment) : sg)));
+                  return sSel.kind === 'corner' ? (
+                    <>
+                      <b>corner</b>
+                      <label>R
+                        <input type="number" min={5} step={1} value={sSel.radius}
+                          onChange={(e) => patch({ radius: Math.max(5, Number(e.target.value)) })} />
+                      </label>
+                      <label>angle°
+                        <input type="number" min={1} max={350} step={1} value={sSel.angle}
+                          onChange={(e) => patch({ angle: Math.max(1, Math.min(350, Number(e.target.value))) })} />
+                      </label>
+                      <select value={sSel.dir} onChange={(e) => patch({ dir: e.target.value as 'left' | 'right' })}>
+                        <option value="left">left</option>
+                        <option value="right">right</option>
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <b>straight</b>
+                      <label>length
+                        <input type="number" min={2} step={1} value={sSel.length}
+                          onChange={(e) => patch({ length: Math.max(2, Number(e.target.value)) })} />
+                      </label>
+                    </>
+                  );
+                })()}
+                <button className="small" onClick={() => setSelected(null)}>✕</button>
+              </span>
+            ) : (
+              <span className="muted hint">click a segment to edit · drag ● radius · ○ angle</span>
+            )}
+            <label className="checkbox" title="While dragging a corner's radius, adjust the two neighbouring straights so the REST of the track stays exactly where it is">
+              <input type="checkbox" checked={lockRest} onChange={(e) => setLockRest(e.target.checked)} />
+              lock rest
+            </label>
             <button onClick={onCloseLoop}>Close loop</button>
           </>
         )}

@@ -39,5 +39,7 @@ VIBRATION_LENGTH=${o.vibLength ?? 0}
     block(4, 'PIT', { friction: 0.9, valid: 1 }),
     block(5, 'SAND', { friction: 0.55, valid: 0, dirt: 1 }),
     block(6, 'CONCRETE', { friction: 0.96, valid: 0 }),
+    block(7, 'TARMAC', { friction: 0.98, valid: 0 }), // paved run-off: grips, but laps don't validate
+    block(8, 'DIRT', { friction: 0.62, valid: 0, dirt: 1 }),
   ].join('\n');
 }

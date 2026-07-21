@@ -119,13 +119,46 @@
   min-height: 0;
 }
 
+/* Resizable split between 3D preview and the 2D outline editor. */
+.preview-pane { display: flex; flex-direction: column; min-height: 90px; }
+.editor-pane { display: flex; flex-direction: column; min-height: 160px; }
+.editor-pane .editor2d { flex: 1; border-top: none; }
+.pane-divider {
+  height: 7px;
+  flex: none;
+  cursor: ns-resize;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.pane-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 44px;
+  height: 3px;
+  margin-left: -22px;
+  border-radius: 2px;
+  background: var(--text-dim);
+  opacity: 0.55;
+}
+.pane-divider:hover::after { background: var(--accent); opacity: 1; }
+
 .preview3d {
-  flex: 1.4;
+  flex: 1;
   min-height: 0;
   position: relative;
   overflow: hidden;
 }
 .preview3d canvas { display: block; }
+
+/* Inline segment editor in the 2D bar (click a segment to open it) */
+.seg-inline-edit { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.seg-inline-edit b { color: var(--accent); }
+.seg-inline-edit label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); }
+.seg-inline-edit input[type='number'] { width: 62px; }
 
 .preview-overlay {
   position: absolute;

@@ -121,6 +121,31 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       for (let x = 0; x < SIZE; x += 128) ctx.fillRect(x, 0, 1, SIZE);
       break;
     }
+    case '1TARMAC': { // paved run-off: like the road but lighter, patch seams
+      grain(ctx, 11);
+      speckle(ctx, 800, [0.4, 1.1], 0.14, true);
+      speckle(ctx, 450, [0.4, 1.0], 0.16, false);
+      ctx.fillStyle = 'rgba(0,0,0,0.10)'; // repave patch seams
+      ctx.fillRect(0, 90, SIZE, 4);
+      ctx.fillRect(150, 0, 4, SIZE);
+      break;
+    }
+    case '1DIRT': { // packed earth
+      grain(ctx, 12);
+      const [r, g, b] = hexRgb(hex);
+      for (let i = 0; i < 900; i++) { // dry clods + small stones
+        const d = -30 + Math.random() * 55;
+        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
+        const pr = 0.6 + Math.random() * 1.8;
+        ctx.beginPath();
+        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, pr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.10)'; // faint wheel ruts
+      ctx.fillRect(0, 70, SIZE, 8);
+      ctx.fillRect(0, 180, SIZE, 8);
+      break;
+    }
     case '1KERB': {
       const pattern = KERB_PATTERNS[theme] ?? KERB_PATTERNS.tarmac_day;
       bandsAcross(ctx, pattern);
@@ -168,6 +193,24 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
             ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
           }
         }
+      } else if (wallStyle === 'hay') {
+        ctx.fillStyle = '#c9a94e'; // stacked hay bales (classic-circuit look)
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        grain(ctx, 10);
+        const [r, g, b] = hexRgb('#c9a94e');
+        for (let i = 0; i < 1200; i++) { // straw streaks
+          const d = -35 + Math.random() * 60;
+          ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
+          ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, 3 + Math.random() * 5, 1);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.30)'; // bale joints, brick-laid
+        for (let y = 0; y < SIZE; y += 44) ctx.fillRect(0, y, SIZE, 3);
+        for (let y = 0; y < SIZE; y += 44) {
+          const off = (y / 44) % 2 === 0 ? 0 : 40;
+          for (let x = off; x < SIZE; x += 80) ctx.fillRect(x, y, 3, 44);
+        }
+        ctx.fillStyle = 'rgba(120,80,30,0.35)'; // twine bands
+        for (let y = 12; y < SIZE; y += 44) ctx.fillRect(0, y, SIZE, 2);
       } else {
         grain(ctx, 6);
         ctx.fillStyle = 'rgba(0,0,0,0.16)'; // concrete segment joints
@@ -196,6 +239,46 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       for (let y = 24; y < SIZE - 16; y += 48) {
         for (let x = 16; x < SIZE - 16; x += 40) ctx.fillRect(x, y, 24, 20);
       }
+      break;
+    }
+    case 'DECOR_BLDGLASS': { // full glass curtain wall
+      grain(ctx, 3);
+      for (let y = 4; y < SIZE; y += 36) {
+        for (let x = 4; x < SIZE; x += 30) {
+          const sky = 120 + Math.random() * 70;
+          ctx.fillStyle = `rgba(${sky * 0.75},${sky * 0.9},${sky},0.9)`;
+          ctx.fillRect(x, y, 26, 32);
+        }
+      }
+      ctx.fillStyle = 'rgba(20,25,32,0.8)'; // mullions
+      for (let y = 0; y < SIZE; y += 36) ctx.fillRect(0, y, SIZE, 4);
+      for (let x = 0; x < SIZE; x += 30) ctx.fillRect(x, 0, 4, SIZE);
+      break;
+    }
+    case 'DECOR_BLDBRICK': { // brick courses with mortar joints
+      grain(ctx, 8);
+      ctx.fillStyle = 'rgba(230,225,215,0.5)';
+      for (let y = 0; y < SIZE; y += 16) {
+        ctx.fillRect(0, y, SIZE, 2);
+        const off = (y / 16) % 2 === 0 ? 0 : 16;
+        for (let x = off; x < SIZE; x += 32) ctx.fillRect(x, y, 2, 16);
+      }
+      ctx.fillStyle = 'rgba(30,40,55,0.85)'; // sparse windows
+      for (let y = 30; y < SIZE - 20; y += 64) {
+        for (let x = 20; x < SIZE - 20; x += 72) ctx.fillRect(x, y, 28, 24);
+      }
+      break;
+    }
+    case 'DECOR_BLDHANGAR': { // corrugated metal shed
+      grain(ctx, 5);
+      for (let x = 0; x < SIZE; x += 12) { // vertical corrugation
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.fillRect(x, 0, 4, SIZE);
+        ctx.fillStyle = 'rgba(0,0,0,0.16)';
+        ctx.fillRect(x + 6, 0, 4, SIZE);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.30)'; // panel seams
+      for (let y = 0; y < SIZE; y += 84) ctx.fillRect(0, y, SIZE, 3);
       break;
     }
     case 'DECOR_PITBLDG': {

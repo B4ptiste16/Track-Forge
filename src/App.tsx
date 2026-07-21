@@ -26,6 +26,29 @@ type View = 'home' | 'build' | 'train';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
+  // Height share of the 2D outline editor vs the 3D preview (drag the divider).
+  const [editFrac, setEditFrac] = useState<number>(() => {
+    const v = Number(localStorage.getItem('editFrac'));
+    return v >= 0.2 && v <= 0.85 ? v : 0.42;
+  });
+  const centerRef = useRef<HTMLElement>(null);
+  const startDividerDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const el = centerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const move = (ev: MouseEvent) => {
+      const frac = Math.min(0.85, Math.max(0.2, (rect.bottom - ev.clientY) / rect.height));
+      setEditFrac(frac);
+      localStorage.setItem('editFrac', String(frac));
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   const [project, setProject] = useState<TrackProject>(() => defaultProject());
   const [customize, setCustomize] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -193,17 +216,26 @@ export default function App() {
           <SegmentList segments={project.segments} onChange={setSegments} />
         </aside>
 
-        <main className="center">
-          <Preview3D project={effective} built={built} />
-          <SegmentEditor2D
-            project={effective}
-            built={built}
-            onCloseLoop={onCloseLoop}
-            onSegmentsChange={setSegments}
-            onManualWallsChange={(manualWalls) => setProject({ ...project, manualWalls })}
-            onZonePicked={onZonePicked}
-            onPlaceBuilding={onPlaceBuilding}
+        <main className="center" ref={centerRef}>
+          <div className="preview-pane" style={{ flex: `${1 - editFrac} 1 0%` }}>
+            <Preview3D project={effective} built={built} />
+          </div>
+          <div
+            className="pane-divider"
+            onMouseDown={startDividerDrag}
+            title="Drag up to enlarge the track outline (the 3D preview shrinks)"
           />
+          <div className="editor-pane" style={{ flex: `${editFrac} 1 0%` }}>
+            <SegmentEditor2D
+              project={effective}
+              built={built}
+              onCloseLoop={onCloseLoop}
+              onSegmentsChange={setSegments}
+              onManualWallsChange={(manualWalls) => setProject({ ...project, manualWalls })}
+              onZonePicked={onZonePicked}
+              onPlaceBuilding={onPlaceBuilding}
+            />
+          </div>
         </main>
 
         <aside className="right">

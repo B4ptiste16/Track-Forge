@@ -12,6 +12,7 @@ export interface ElevationPoint {
 
 export type KerbType =
   | 'none'
+  | 'painted' // flush painted stripes on the tarmac (modern "tarmac kerb")
   | 'flat' // low flat painted red/white kerb
   | 'serrated' // ramped saw-tooth rumble kerb
   | 'ripple' // continuous rounded rumble ridges
@@ -52,7 +53,7 @@ export interface SectionRunoff {
 // distance-range zones that override it (wider, different texture, wall pushed
 // further out...). 'gravel_spaced' = 0.5 m of grass between track and gravel.
 // ---------------------------------------------------------------------------
-export type StripTexture = 'grass' | 'gravel' | 'gravel_spaced' | 'concrete';
+export type StripTexture = 'grass' | 'gravel' | 'gravel_spaced' | 'concrete' | 'tarmac' | 'dirt';
 export interface StripCfg {
   texture: StripTexture;
   width: number; // strip width from the track edge (m)
@@ -72,6 +73,7 @@ export interface Trackside {
 }
 
 // A placeable decorative building (visual only in AC).
+export type BuildingKind = 'offices' | 'glass' | 'brick' | 'hangar';
 export interface Building {
   id: string;
   x: number;
@@ -80,6 +82,7 @@ export interface Building {
   d: number; // depth (m)
   h: number; // height (m)
   rot: number; // degrees, CCW
+  kind?: BuildingKind; // facade style (default 'offices')
 }
 
 // An alternate track layout: everything shape-related, saved under a name.
@@ -109,7 +112,7 @@ export interface PitConfig {
   structures?: boolean; // pit wall vs track + garage building + painted box lines
 }
 
-export type WallStyle = 'solid' | 'armco' | 'tecpro' | 'blocks';
+export type WallStyle = 'solid' | 'armco' | 'tecpro' | 'blocks' | 'hay';
 export interface WallConfig {
   enabled: boolean; // master switch for all barriers
   height: number; // wall height (m)
