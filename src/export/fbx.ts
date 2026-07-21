@@ -137,6 +137,13 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
   L(0, '}');
 
   L(0, 'Objects:  {');
+  // World-space planar UVs for meshes that carry none (ground aprons are built
+  // without UVs). TILE = metres per full texture tile. Uses native X/Y (pre-
+  // toFbx) so the tiling is consistent regardless of the Z-up->Y-up swap.
+  const TILE = 4;
+  const planarUVs = (mesh: MeshData): [number, number][] =>
+    mesh.vertices.map((v) => [v[0] / TILE, v[1] / TILE]);
+
   for (const mn of meshNodes) {
     const verts = mn.mesh.vertices.map(toFbx);
     const norms = computeVertexNormals(mn.mesh).map(toFbx);
@@ -164,11 +171,18 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(4, `a: ${nFlat.join(',')}`);
     L(3, '}');
     L(2, '}');
-    if (mn.mesh.uvs && mn.mesh.uvs.length === mn.mesh.vertices.length) {
+    {
       // Per-vertex UVs referenced per polygon-vertex (the layout every FBX
-      // importer accepts). Without UVs the striped kerb/flag textures smear.
+      // importer accepts). ALWAYS emit a UV layer: explicit UVs when the mesh
+      // has them (striped kerbs/flags/walls), otherwise world-planar UVs so
+      // ground aprons (grass/sand/CONCRETE/tarmac/dirt) still get texture
+      // coordinates. Without any UV layer the texture samples a single texel
+      // and the surface renders flat grey — the "textureless concrete" bug.
+      const useUvs = mn.mesh.uvs && mn.mesh.uvs.length === mn.mesh.vertices.length
+        ? mn.mesh.uvs
+        : planarUVs(mn.mesh);
       const uvFlat: string[] = [];
-      for (const uv of mn.mesh.uvs) uvFlat.push(f(uv[0]), f(uv[1]));
+      for (const uv of useUvs) uvFlat.push(f(uv[0]), f(uv[1]));
       const uvIdx: string[] = [];
       for (const face of mn.mesh.faces) uvIdx.push(String(face[0]), String(face[1]), String(face[2]));
       L(2, 'LayerElementUV: 0 {');
@@ -199,12 +213,10 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(4, 'Type: "LayerElementNormal"');
     L(4, 'TypedIndex: 0');
     L(3, '}');
-    if (mn.mesh.uvs && mn.mesh.uvs.length === mn.mesh.vertices.length) {
-      L(3, 'LayerElement:  {');
-      L(4, 'Type: "LayerElementUV"');
-      L(4, 'TypedIndex: 0');
-      L(3, '}');
-    }
+    L(3, 'LayerElement:  {');  // UV layer is now ALWAYS emitted (planar fallback)
+    L(4, 'Type: "LayerElementUV"');
+    L(4, 'TypedIndex: 0');
+    L(3, '}');
     L(3, 'LayerElement:  {');
     L(4, 'Type: "LayerElementMaterial"');
     L(4, 'TypedIndex: 0');

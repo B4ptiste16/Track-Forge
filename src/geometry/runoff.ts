@@ -394,11 +394,18 @@ export function buildRunoff(
         const inwardSign = side === 'left' ? -1 : 1; // toward the track
         const inward: Vec3 = [plx * inwardSign, ply * inwardSign, 0];
         const uA = samples[i].dist / 3, uB = samples[i + 1].dist / 3;
-        if (walls.style === 'blocks' || walls.style === 'tecpro') {
-          emitWallBox(wall, oA, oB, inward, walls.height, walls.style === 'tecpro' ? 1.0 : BLOCK_THICK, uA, uB);
-        } else {
-          emitWallStrip(wall, oA, oB, inward, walls.height, uA, uB);
-        }
+        // ALL walls are SOLID boxes now, not thin single-sided planes. A thin
+        // one-sided wall lets the car penetrate and then grab it ("100% grip,
+        // completely stick, lose control"); a solid box has a clean continuous
+        // track-facing face plus a back face, so the car slides along it and
+        // can't clip through and get stuck. Thickness varies by barrier type.
+        const thick =
+          walls.style === 'tecpro' ? 1.0
+            : walls.style === 'blocks' ? BLOCK_THICK
+              : walls.style === 'hay' ? 0.6
+                : walls.style === 'armco' ? 0.3
+                  : 0.4; // solid concrete
+        emitWallBox(wall, oA, oB, inward, walls.height, thick, uA, uB);
       }
     }
   }
@@ -438,39 +445,17 @@ export function buildManualWalls(
       const oA: Vec3 = [ax, ay, zAt(ax, ay)];
       const oB: Vec3 = [bx, by, zAt(bx, by)];
       const seg = Math.hypot(bx - ax, by - ay);
-      emitWallBoxFacing(mesh, oA, oB, height, run / 3, (run + seg) / 3);
+      // Solid box (thickness perpendicular to the drawn line), so a hand-drawn
+      // barrier collides like a real wall — car slides, doesn't clip & stick.
+      const dx = (bx - ax) / (seg || 1), dy = (by - ay) / (seg || 1);
+      const perp: Vec3 = [-dy, dx, 0];
+      emitWallBox(mesh, oA, oB, perp, height, 0.3, run / 3, (run + seg) / 3);
       run += seg;
     }
   }
   return mesh;
 }
 
-// A thin double-faced wall segment (manual walls have no inherent inside).
-function emitWallBoxFacing(wall: MeshData, oA: Vec3, oB: Vec3, h: number, uA: number, uB: number): void {
-  const base = wall.vertices.length;
-  wall.vertices.push([oA[0], oA[1], oA[2]]);
-  wall.vertices.push([oA[0], oA[1], oA[2] + h]);
-  wall.vertices.push([oB[0], oB[1], oB[2]]);
-  wall.vertices.push([oB[0], oB[1], oB[2] + h]);
-  wall.uvs!.push([uA, 0], [uA, 1], [uB, 0], [uB, 1]);
-  // two faces, opposite windings, so it's visible from both sides
-  wall.faces.push([base, base + 1, base + 3]);
-  wall.faces.push([base, base + 3, base + 2]);
-  wall.faces.push([base, base + 3, base + 1]);
-  wall.faces.push([base, base + 2, base + 3]);
-}
-
-// Thin continuous barrier: one inward-facing vertical quad per segment.
-// UVs: u runs along the barrier, v bottom->top (so rails/bands land right).
-function emitWallStrip(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, uA: number, uB: number): void {
-  const base = wall.vertices.length;
-  wall.vertices.push([oA[0], oA[1], oA[2]]);
-  wall.vertices.push([oA[0], oA[1], oA[2] + h]);
-  wall.vertices.push([oB[0], oB[1], oB[2]]);
-  wall.vertices.push([oB[0], oB[1], oB[2] + h]);
-  wall.uvs!.push([uA, 0], [uA, 1], [uB, 0], [uB, 1]);
-  addQuadToward(wall.vertices, wall.faces, base, base + 1, base + 3, base + 2, inward);
-}
 
 // Chunky barrier (tyre/poly blocks, TecPro): a contiguous box (thickness +
 // top) per segment, so it reads as a row of blocks. Still gapless for collision.
