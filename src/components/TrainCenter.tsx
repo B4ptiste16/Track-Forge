@@ -104,6 +104,14 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
     else desktop!.rlLive(selected).then(setLive);
   };
 
+  const [setup, setSetup] = useState<{ car?: string; tips: string[]; brakeBias?: number | null } | null>(null);
+  const suggestSetup = async () => {
+    if (!selected) return;
+    setSetup({ tips: ['Analysing the bot’s telemetry…'] });
+    const r = await desktop!.rlSuggestSetup(selected);
+    setSetup(r.ok ? { car: r.car, tips: r.tips, brakeBias: r.brakeBias } : { tips: [r.error || 'failed'] });
+  };
+
   const running = status.running;
   const liveBusy = running.some((p) => LIVE_SCRIPTS.has(p.script));
   const simBusy = running.some((p) => p.script === 'train_sim.py');
@@ -230,6 +238,24 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                 </div>
               )}
               {fresh && lv!.note && <div className="train-note">{lv!.note}</div>}
+
+              <div className="train-setup">
+                <div className="train-setup-head">
+                  <span className="train-card-title" style={{ margin: 0 }}>Suggested setup</span>
+                  <button className="small" onClick={suggestSetup} disabled={!selected}>analyse</button>
+                </div>
+                {setup ? (
+                  <div className="train-setup-body">
+                    {setup.brakeBias != null && (
+                      <div className="train-setup-bias">Brake bias ≈ <b>{setup.brakeBias}% front</b></div>
+                    )}
+                    <ul>{setup.tips.map((t, i) => <li key={i}>{t}</li>)}</ul>
+                    {setup.car && <div className="muted">from telemetry of {setup.car}</div>}
+                  </div>
+                ) : (
+                  <div className="muted">Once the bot laps cleanly, analyse its telemetry for brake-bias &amp; balance advice (apply it in AC’s setup screen).</div>
+                )}
+              </div>
             </div>
           </div>
 

@@ -397,6 +397,12 @@
 .train-live-grid b { font-size: 19px; }
 .train-live-grid span { font-size: 11px; color: var(--text-dim); }
 .train-note { margin-top: 8px; color: var(--accent); font-size: 13px; font-weight: 600; }
+.train-setup { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.train-setup-head { display: flex; align-items: center; justify-content: space-between; }
+.train-setup-body { margin-top: 6px; font-size: 12.5px; }
+.train-setup-bias { color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.train-setup-body ul { margin: 4px 0 0; padding-left: 16px; }
+.train-setup-body li { margin: 3px 0; line-height: 1.4; }
 .train-log {
   flex: 1;
   min-height: 120px;

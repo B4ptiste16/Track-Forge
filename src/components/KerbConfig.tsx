@@ -75,10 +75,18 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
           <div key={c.cornerIndex} className="kerb-corner">
             <div className="kerb-corner-title">
               T{c.cornerIndex + 1}
-              <label className="checkbox kerb-escape" title="Monza-style escape road on the outside">
-                <input type="checkbox" checked={!!c.escape}
-                  onChange={(e) => setCorner(c.cornerIndex, { escape: e.target.checked })} />
-                escape road
+              <label className="kerb-escape" title="Run-off on the outside of the corner that curves back to rejoin the track">
+                escape:
+                <select
+                  value={c.escapeType ?? (c.escape ? 'sausage' : 'none')}
+                  onChange={(e) => setCorner(c.cornerIndex, { escapeType: e.target.value as CornerConfig['escapeType'], escape: e.target.value !== 'none' })}
+                >
+                  <option value="none">none</option>
+                  <option value="tarmac">tarmac (fast)</option>
+                  <option value="sausage">sausage bumps</option>
+                  <option value="slalom">slalom</option>
+                  <option value="gravel">gravel trap</option>
+                </select>
               </label>
             </div>
             <div className="kerb-parts">

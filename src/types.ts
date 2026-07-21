@@ -20,12 +20,23 @@ export type KerbType =
   | 'tall' // taller aggressive yellow sausage
   | 'combo'; // flat red/white kerb + raised yellow sausage (the F1 look)
 
+// Escape-road behaviour on the OUTSIDE of a corner (where an overshooting car
+// runs off). All types except 'gravel' build a paved run-off that curves back
+// to REJOIN the track after the corner; they differ in how they slow the car:
+//   tarmac  — clean paved run-off, only edge bollards (fastest rejoin)
+//   sausage — rows of sausage kerbs ACROSS the lane (speed bumps): slow, then
+//             reaccelerate and rejoin
+//   slalom  — staggered block gates forcing a slalom
+//   gravel  — a gravel trap on the outside (drags the car to a stop; crawl back)
+export type EscapeType = 'none' | 'tarmac' | 'sausage' | 'slalom' | 'gravel';
+
 export interface CornerConfig {
   cornerIndex: number; // 0-based index among corner segments, in lap order
   entry: KerbType;
   apex: KerbType;
   exit: KerbType;
-  escape?: boolean; // paved escape road on the outside of this corner
+  escape?: boolean; // LEGACY: migrated to escapeType on load
+  escapeType?: EscapeType; // escape road kind on the outside of this corner
   kerbWidth?: number; // legacy single width (fallback for the per-part widths)
   entryW?: number; // m — entry kerb cross-section width
   apexW?: number; // m — apex kerb cross-section width

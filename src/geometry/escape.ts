@@ -1,17 +1,23 @@
-import type { CornerConfig, Segment } from '../types';
+import type { CornerConfig, EscapeType, Segment } from '../types';
 import type { CenterlineSample, SegmentSpan, MeshData, Vec3 } from './types';
 import { offsetPoint } from './frames';
 import { addQuadUp, addQuadToward } from './meshbuilder';
 
-// Monza-T1-style escape roads: where a corner has `escape` ticked, a tarmac
-// bypass continues along the braking line, bends round behind the corner and
-// REJOINS the track shortly after the exit — so it's a safe way back on, not a
-// shortcut: a staggered slalom of yellow polystyrene blocks mid-bypass forces
-// you to slow right down, a sausage-kerb strip separates it from the corner,
-// and orange bollards line the edges. Hairpins (no clean rejoin geometry)
-// fall back to a straight dead-end closed by block rows.
+// Escape roads on the OUTSIDE of a corner. Where a car overshoots, a run-off
+// continues straight along the braking line, then curves back to REJOIN the
+// track after the exit — a safe route back on, not a shortcut. The path is a
+// CUBIC bezier tangent to the entry direction at the split and to the track
+// direction at the rejoin, so it always curves back smoothly (the old
+// line-intersection version fell back to a straight dead-end whenever the two
+// tangents didn't cross cleanly — that's the "just goes straight" bug).
+//
+// Per-corner escapeType decides how the car is slowed:
+//   tarmac  — clean paved run-off, only edge bollards
+//   sausage — rows of sausage kerbs ACROSS the lane (speed bumps)
+//   slalom  — staggered block gates
+//   gravel  — gravel surface over the run-off (drags the car down)
 
-const LIFT = 0.012; // above surrounding aprons so physics picks the tarmac
+const LIFT = 0.012; // above surrounding aprons so physics picks the escape surface
 
 export interface EscapeCorridor {
   origin: [number, number];
@@ -21,15 +27,14 @@ export interface EscapeCorridor {
 }
 
 export interface EscapeBuild {
-  road: MeshData; // merge into 1ROAD
-  kerbHi: MeshData; // merge into 1KERBHI (sausage separator, rumbles)
+  road: MeshData; // merge into 1ROAD (tarmac escapes)
+  gravel: MeshData; // merge into 1SAND (gravel escapes)
+  kerbHi: MeshData; // merge into 1KERBHI (sausage rows, rumble)
   poly: MeshData; // 1WALLPOLY — physical block rows (WALL keyword = collision)
   bollards: MeshData; // DECOR_BOLLARD — visual
   corridors: EscapeCorridor[]; // keep auto walls out of the escape road
 }
 
-// Small oriented box (4 sides + top): centre (cx,cy), half-extent vectors
-// A and B in the ground plane, height h from z0.
 function emitBox(m: MeshData, cx: number, cy: number, z0: number, A: [number, number], B: [number, number], h: number): void {
   const c: [number, number][] = [
     [cx - A[0] - B[0], cy - A[1] - B[1]],
@@ -49,14 +54,12 @@ function emitBox(m: MeshData, cx: number, cy: number, z0: number, A: [number, nu
   addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
 }
 
-// A path point of the bypass: position, unit tangent, half-width, height.
-interface PathPt {
-  x: number;
-  y: number;
-  tx: number;
-  ty: number;
-  half: number;
-  z: number;
+interface PathPt { x: number; y: number; tx: number; ty: number; half: number; z: number; }
+
+function escapeTypeOf(cfg: CornerConfig | undefined): EscapeType {
+  if (!cfg) return 'none';
+  if (cfg.escapeType) return cfg.escapeType;
+  return cfg.escape ? 'sausage' : 'none';
 }
 
 export function buildEscapes(
@@ -67,6 +70,7 @@ export function buildEscapes(
   width: number,
 ): EscapeBuild {
   const road: MeshData = { name: '1ROAD', vertices: [], faces: [] };
+  const gravel: MeshData = { name: '1SAND', vertices: [], faces: [] };
   const kerbHi: MeshData = { name: '1KERBHI', vertices: [], faces: [] };
   const poly: MeshData = { name: '1WALLPOLY', vertices: [], faces: [] };
   const bollards: MeshData = { name: 'DECOR_BOLLARD', vertices: [], faces: [] };
@@ -77,122 +81,130 @@ export function buildEscapes(
     const seg = segs[span.segIndex];
     if (seg.kind !== 'corner') continue;
     const cfg = corners.find((c) => c.cornerIndex === span.cornerIndex);
-    if (!cfg?.escape) continue;
+    const type = escapeTypeOf(cfg);
+    if (type === 'none') continue;
 
-    // entry frame
+    // entry frame (corner start)
     let e = 0;
     for (let i = 0; i < samples.length; i++) {
       if (samples[i].segIndex === span.segIndex) { e = i; break; }
     }
     const s0 = samples[e];
     const d0: [number, number] = [Math.cos(s0.heading), Math.sin(s0.heading)];
-    const kSign = seg.dir === 'left' ? 1 : -1; // which side the track curves off to
+    const kSign = seg.dir === 'left' ? 1 : -1; // corner curves off toward +kSign*left
 
-    // rejoin frame: a bit after the corner exit, at the outside edge
+    // Split point: outside edge at corner entry (where the overshoot begins).
+    const START_HALF = width / 2;
+    const p0 = offsetPoint(s0, -kSign * (START_HALF - 0.3));
+
+    // Rejoin frame: a bit after the corner exit, at the outside edge.
     const total = samples[samples.length - 1].dist;
-    const rDist = Math.min(total - 1, span.endDist + 45);
+    const rDist = Math.min(total - 1, span.endDist + Math.max(35, seg.radius * 0.6));
     let r = samples.length - 1;
     for (let i = 0; i < samples.length; i++) {
       if (samples[i].dist >= rDist) { r = i; break; }
     }
     const sR = samples[r];
     const d1: [number, number] = [Math.cos(sR.heading), Math.sin(sR.heading)];
-    const END_HALF = 2.5;
-    const rj = offsetPoint(sR, -kSign * (width / 2 + END_HALF - 0.5)); // outside edge, slight overlap
+    const END_HALF = 2.6;
+    const p3 = offsetPoint(sR, -kSign * (width / 2 + END_HALF - 0.6));
 
-    // control point = intersection of entry line and (reversed) rejoin line
-    const det = d0[0] * -d1[1] - d0[1] * -d1[0];
-    let path: PathPt[] | null = null;
-    if (Math.abs(det) > 0.05) {
-      const rx = rj[0] - s0.pos[0], ry = rj[1] - s0.pos[1];
-      const t = (rx * -d1[1] - ry * -d1[0]) / det; // along d0 from entry
-      const s = (d0[0] * ry - d0[1] * rx) / det; // along d1 back from rejoin
-      if (t > 15 && t < 260 && s > 15 && s < 260) {
-        const cx = s0.pos[0] + d0[0] * t;
-        const cy = s0.pos[1] + d0[1] * t;
-        const M = 40;
-        path = [];
-        for (let k = 0; k <= M; k++) {
-          const u = k / M;
-          const a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c2 = u * u;
-          const x = a * s0.pos[0] + b * cx + c2 * rj[0];
-          const y = a * s0.pos[1] + b * cy + c2 * rj[1];
-          // derivative
-          let dx = 2 * (1 - u) * (cx - s0.pos[0]) + 2 * u * (rj[0] - cx);
-          let dy = 2 * (1 - u) * (cy - s0.pos[1]) + 2 * u * (rj[1] - cy);
-          const dl = Math.hypot(dx, dy) || 1;
-          dx /= dl; dy /= dl;
-          // width: full road at the split, narrow service road, small at rejoin
-          const half = u < 0.25 ? width / 2 + (4 - width / 2) * (u / 0.25) : 4 + (END_HALF - 4) * ((u - 0.25) / 0.75);
-          const z = s0.pos[2] + (sR.pos[2] - s0.pos[2]) * u + LIFT;
-          path.push({ x, y, tx: dx, ty: dy, half, z });
-        }
-      }
+    // Cubic bezier: tangent to d0 at the split, tangent to d1 at the rejoin.
+    // Control arm length ~40% of the straight-line distance always yields a
+    // smooth curve, no intersection test — the run-off ALWAYS bends back.
+    const chord = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]);
+    const arm = Math.max(18, Math.min(120, chord * 0.42));
+    const p1: [number, number] = [p0[0] + d0[0] * arm, p0[1] + d0[1] * arm];
+    const p2: [number, number] = [p3[0] - d1[0] * arm, p3[1] - d1[1] * arm];
+
+    const M = 44;
+    const path: PathPt[] = [];
+    for (let k = 0; k <= M; k++) {
+      const u = k / M;
+      const mu = 1 - u;
+      const b0 = mu * mu * mu, b1 = 3 * mu * mu * u, b2 = 3 * mu * u * u, b3 = u * u * u;
+      const x = b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0];
+      const y = b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1];
+      // derivative
+      let dx = 3 * mu * mu * (p1[0] - p0[0]) + 6 * mu * u * (p2[0] - p1[0]) + 3 * u * u * (p3[0] - p2[0]);
+      let dy = 3 * mu * mu * (p1[1] - p0[1]) + 6 * mu * u * (p2[1] - p1[1]) + 3 * u * u * (p3[1] - p2[1]);
+      const dl = Math.hypot(dx, dy) || 1;
+      dx /= dl; dy /= dl;
+      // width: full road at the split, tapering to the narrow rejoin throat
+      const half = u < 0.3 ? START_HALF + (5 - START_HALF) * (u / 0.3) : 5 + (END_HALF - 5) * ((u - 0.3) / 0.7);
+      const z = s0.pos[2] + (sR.pos[2] - s0.pos[2]) * u + LIFT;
+      path.push({ x, y, tx: dx, ty: dy, half, z });
     }
 
-    if (path) {
-      emitBypass(road, kerbHi, poly, bollards, corridors, path, kSign);
-    } else {
-      // hairpin/no clean rejoin: straight dead-end closed by block rows
-      emitDeadEnd(road, kerbHi, poly, bollards, corridors, s0.pos, d0, width, kSign);
-    }
+    emitEscape(type, { road, gravel, kerbHi, poly, bollards, corridors }, path, kSign);
   }
 
-  return { road, kerbHi, poly, bollards, corridors };
+  return { road, gravel, kerbHi, poly, bollards, corridors };
 }
 
-function emitBypass(
-  road: MeshData,
-  kerbHi: MeshData,
-  poly: MeshData,
-  bollards: MeshData,
-  corridors: EscapeCorridor[],
+function emitEscape(
+  type: EscapeType,
+  out: Omit<EscapeBuild, never>,
   path: PathPt[],
   kSign: number,
 ): void {
+  const { road, gravel, kerbHi, poly, bollards, corridors } = out;
   const M = path.length - 1;
   const at = (p: PathPt, off: number): Vec3 => [p.x - p.ty * off, p.y + p.tx * off, p.z];
-  // NOTE: perp of tangent (tx,ty) is (-ty,tx) = "left of travel"; off>0 = left.
+  // perp of tangent (tx,ty) is (-ty,tx) = "left of travel"; off>0 = left.
 
-  // tarmac strip
+  // paved (or gravel) run-off surface
+  const surf = type === 'gravel' ? gravel : road;
   for (let k = 0; k < M; k++) {
     const a = path[k], b = path[k + 1];
-    const vb = road.vertices.length;
-    road.vertices.push(at(a, a.half), at(a, -a.half), at(b, b.half), at(b, -b.half));
-    addQuadUp(road.vertices, road.faces, vb, vb + 1, vb + 3, vb + 2);
+    const vb = surf.vertices.length;
+    surf.vertices.push(at(a, a.half), at(a, -a.half), at(b, b.half), at(b, -b.half));
+    addQuadUp(surf.vertices, surf.faces, vb, vb + 1, vb + 3, vb + 2);
   }
 
-  // sausage kerb along the corner side over the first half (the separator)
-  const K_W = 0.9, K_H = 0.075, COLS = 6;
-  const k0 = Math.round(M * 0.06), k1 = Math.round(M * 0.5);
-  for (let k = k0; k < k1; k++) {
-    const rows = [path[k], path[k + 1]];
-    const vb = kerbHi.vertices.length;
-    for (const p of rows) {
-      for (let c = 0; c <= COLS; c++) {
-        const f = c / COLS;
-        const pos = at(p, (p.half + f * K_W) * kSign);
-        kerbHi.vertices.push([pos[0], pos[1], p.z - LIFT + 0.01 + Math.sin(Math.PI * f) * K_H]);
+  if (type === 'sausage') {
+    // Rows of sausage kerbs ACROSS the whole lane (speed bumps), spaced along
+    // the middle stretch — the car bumps over them slowing down, then has
+    // clear tarmac to reaccelerate before the rejoin.
+    const K_H = 0.09;
+    for (let k = Math.round(M * 0.25); k <= Math.round(M * 0.7); k += 4) {
+      const p = path[k], pn = path[Math.min(M, k + 1)];
+      const half = p.half - 0.4;
+      const COLS = Math.max(6, Math.round((half * 2) / 1.2));
+      const vb = kerbHi.vertices.length;
+      for (const row of [p, pn]) {
+        for (let c = 0; c <= COLS; c++) {
+          const off = -half + (2 * half) * (c / COLS);
+          const pos = at(row, off);
+          // bump profile ACROSS the row so it reads as a rounded rumble strip
+          const bump = Math.sin(Math.PI * ((c % 3) / 3 + 0.15)) * K_H;
+          kerbHi.vertices.push([pos[0], pos[1], row.z - LIFT + 0.01 + bump]);
+        }
+      }
+      for (let c = 0; c < COLS; c++) {
+        const a0 = vb + c, a1 = vb + c + 1, b0 = vb + COLS + 1 + c, b1 = vb + COLS + 1 + c + 1;
+        addQuadUp(kerbHi.vertices, kerbHi.faces, a0, a1, b1, b0);
       }
     }
-    for (let c = 0; c < COLS; c++) {
-      const a0 = vb + c, a1 = vb + c + 1, b0 = vb + COLS + 1 + c, b1 = vb + COLS + 1 + c + 1;
-      addQuadUp(kerbHi.vertices, kerbHi.faces, a0, a1, b1, b0);
+  } else if (type === 'slalom') {
+    // Staggered block gates: alternate which half is blocked so the car must
+    // weave, scrubbing speed.
+    let side = 1;
+    for (let k = Math.round(M * 0.28); k <= Math.round(M * 0.72); k += Math.round(M * 0.12)) {
+      const p = path[k];
+      const gapEdge = 0.5;
+      const blockHalf = (p.half - gapEdge) / 2;
+      if (blockHalf < 0.6) continue;
+      const centerOff = side * (gapEdge + blockHalf);
+      const c = at(p, centerOff);
+      const perp: [number, number] = [-p.ty, p.tx];
+      emitBox(poly, c[0], c[1], p.z, [perp[0] * blockHalf, perp[1] * blockHalf], [p.tx * 0.4, p.ty * 0.4], 0.9);
+      side = -side;
     }
   }
+  // 'tarmac' and 'gravel' get no in-lane furniture — just the surface + edges.
 
-  // staggered slalom: block the outer half, then the inner half — kills speed
-  for (const [u, sideSign] of [[0.42, -kSign], [0.58, kSign]] as [number, number][]) {
-    const p = path[Math.round(M * u)];
-    const gapEdge = 0.4; // leave the other half open
-    const blockHalf = (p.half - gapEdge) / 2;
-    const centerOff = sideSign * (gapEdge + blockHalf);
-    const c = at(p, centerOff);
-    const perp: [number, number] = [-p.ty, p.tx];
-    emitBox(poly, c[0], c[1], p.z, [perp[0] * blockHalf, perp[1] * blockHalf], [p.tx * 0.4, p.ty * 0.4], 0.9);
-  }
-
-  // bollards along both edges
+  // edge bollards along both sides (all types)
   for (let k = Math.round(M * 0.08); k <= Math.round(M * 0.92); k += 3) {
     const p = path[k];
     for (const sgn of [1, -1]) {
@@ -201,7 +213,7 @@ function emitBypass(
     }
   }
 
-  // wall-free corridors along the path
+  // wall-free corridors so the auto barrier doesn't wall across the run-off
   for (let k = 0; k < M; k += 4) {
     const a = path[k], b = path[Math.min(M, k + 4)];
     const dl = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -212,63 +224,5 @@ function emitBypass(
       halfW: Math.max(a.half, b.half) + 1.8,
     });
   }
-}
-
-function emitDeadEnd(
-  road: MeshData,
-  kerbHi: MeshData,
-  poly: MeshData,
-  bollards: MeshData,
-  corridors: EscapeCorridor[],
-  origin: Vec3,
-  dir: [number, number],
-  width: number,
-  kSign: number,
-): void {
-  const LEN = 60;
-  const perp: [number, number] = [-dir[1], dir[0]];
-  const z = origin[2] + LIFT;
-  const at = (t: number, off: number): Vec3 => [
-    origin[0] + dir[0] * t + perp[0] * off,
-    origin[1] + dir[1] * t + perp[1] * off,
-    z,
-  ];
-  const halfAt = (t: number) => (width / 2) * (1 - 0.3 * (t / LEN));
-  for (let t = 0; t < LEN; t += 4) {
-    const t2 = Math.min(LEN, t + 4);
-    const b = road.vertices.length;
-    road.vertices.push(at(t, halfAt(t)), at(t, -halfAt(t)), at(t2, halfAt(t2)), at(t2, -halfAt(t2)));
-    addQuadUp(road.vertices, road.faces, b, b + 1, b + 3, b + 2);
-  }
-  const K_W = 0.9, K_H = 0.075, COLS = 6;
-  for (let t = 6; t < 40; t += 2) {
-    const b = kerbHi.vertices.length;
-    for (const tt of [t, t + 2]) {
-      for (let c = 0; c <= COLS; c++) {
-        const f = c / COLS;
-        const p = at(tt, (halfAt(tt) + f * K_W) * kSign);
-        kerbHi.vertices.push([p[0], p[1], z - LIFT + 0.01 + Math.sin(Math.PI * f) * K_H]);
-      }
-    }
-    for (let c = 0; c < COLS; c++) {
-      const a0 = b + c, a1 = b + c + 1, b0 = b + COLS + 1 + c, b1 = b + COLS + 1 + c + 1;
-      addQuadUp(kerbHi.vertices, kerbHi.faces, a0, a1, b1, b0);
-    }
-  }
-  for (const t of [LEN - 8, LEN - 2]) {
-    const half = halfAt(t) - 0.4;
-    const n = Math.max(2, Math.floor((half * 2) / 2.8));
-    for (let k = 0; k < n; k++) {
-      const off = -half + 1.1 + k * ((half * 2 - 2.2) / Math.max(1, n - 1));
-      const p = at(t, off);
-      emitBox(poly, p[0], p[1], z, [perp[0] * 1.1, perp[1] * 1.1], [dir[0] * 0.4, dir[1] * 0.4], 0.9);
-    }
-  }
-  for (let t = 8; t <= 44; t += 6) {
-    for (const sgn of [1, -1]) {
-      const p = at(t, (halfAt(t) + 0.7) * sgn);
-      emitBox(bollards, p[0], p[1], z - LIFT, [dir[0] * 0.09, dir[1] * 0.09], [perp[0] * 0.09, perp[1] * 0.09], 1.0);
-    }
-  }
-  corridors.push({ origin: [origin[0], origin[1]], dir, len: LEN + 3, halfW: width / 2 + 1.8 });
+  void kSign;
 }

@@ -236,7 +236,13 @@ export function syncCorners(
   const out: CornerConfig[] = [];
   for (let i = 0; i < n; i++) {
     const prev = existing.find((c) => c.cornerIndex === i);
-    out.push(prev ?? { cornerIndex: i, entry: defaultKerb, apex: defaultKerb, exit: defaultKerb });
+    if (prev) {
+      // migrate the legacy boolean escape flag to escapeType (once)
+      if (prev.escapeType === undefined && prev.escape) prev.escapeType = 'sausage';
+      out.push(prev);
+    } else {
+      out.push({ cornerIndex: i, entry: defaultKerb, apex: defaultKerb, exit: defaultKerb });
+    }
   }
   return out;
 }

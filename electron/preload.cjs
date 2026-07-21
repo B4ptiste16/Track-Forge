@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('desktop', {
   rlLogHistory: () => ipcRenderer.invoke('rl:logHistory'),
   rlLaunchAC: (track) => ipcRenderer.invoke('rl:launchAC', { track }),
   rlRestoreSaved: (track, folder) => ipcRenderer.invoke('rl:restoreSaved', { track, folder }),
+  rlSuggestSetup: (track) => ipcRenderer.invoke('rl:suggestSetup', { track }),
   // These return an unsubscribe fn so a page can clean up on unmount (the
   // training page mounts/unmounts as the user navigates home and back).
   onRlLog: (cb) => {

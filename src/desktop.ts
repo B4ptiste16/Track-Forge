@@ -35,6 +35,7 @@ export interface DesktopApi {
   rlLogHistory(): Promise<string[]>;
   rlLaunchAC(track: string): Promise<{ ok: boolean; error?: string }>;
   rlRestoreSaved(track: string, folder: string): Promise<{ ok: boolean; error?: string }>;
+  rlSuggestSetup(track: string): Promise<{ ok: boolean; car?: string; tips: string[]; brakeBias?: number | null; steps?: number; error?: string }>;
   onRlLog(cb: (line: string) => void): () => void;
   onRlStatus(cb: (s: RlStatus) => void): () => void;
 }

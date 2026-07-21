@@ -51,13 +51,15 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const pitInfo = computePitInfo(samples, project);
 
   // Per-segment lookups: corner direction/(clamped) radius + escape flag.
+  const escapeOf = (cfg: { escape?: boolean; escapeType?: string } | undefined): boolean =>
+    !!cfg && (cfg.escapeType ? cfg.escapeType !== 'none' : !!cfg.escape);
   const segCorner = new Map<number, { dir: 'left' | 'right'; radius: number; escape: boolean }>();
   for (const span of spans) {
     if (span.kind !== 'corner') continue;
     const seg = segsClamped[span.segIndex];
     if (seg.kind !== 'corner') continue;
     const cfg = project.corners.find((c) => c.cornerIndex === span.cornerIndex);
-    segCorner.set(span.segIndex, { dir: seg.dir, radius: seg.radius, escape: !!cfg?.escape });
+    segCorner.set(span.segIndex, { dir: seg.dir, radius: seg.radius, escape: escapeOf(cfg) });
   }
 
   // Inner offset where the grass/runoff starts. Only the pit lane reserves room
@@ -188,6 +190,12 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const pitDeco = buildPitStructures(samples, project, width, totalLength, paddockDepth);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors);
+  // gravel escape surface merges into the 1SAND apron mesh if present, else adds
+  if (esc.gravel.faces.length) {
+    const sand = runoffMeshes.find((m) => m.name === '1SAND');
+    if (sand) mergeInto(sand, esc.gravel);
+    else runoffMeshes.push(esc.gravel);
+  }
 
   // Clean infield fill on the inside of every corner (surface per corner config).
   const fills: CornerFill[] = [];

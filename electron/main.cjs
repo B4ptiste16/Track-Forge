@@ -207,7 +207,7 @@ const RL_DEFAULT_AC = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assett
 const RL_LOCAL = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'ac-rl');
 const RL_STOP_FLAG = path.join(RL_LOCAL, 'stop.flag');
 // Only these scripts may be launched from the app (never arbitrary commands).
-const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py', 'save_and_reset.py']);
+const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py', 'save_and_reset.py', 'suggest_setup.py']);
 
 function rlDir() {
   return loadSettings().acRlDir || RL_DEFAULT_DIR;
@@ -416,6 +416,50 @@ ipcMain.handle('rl:live', async (_e, { track } = {}) => {
     } catch { out.saved = []; }
   }
   return out;
+});
+
+// Suggested car setup for a track: read the setup-advice telemetry the trainer
+// accumulated for the most-recently-trained car and turn it into directional
+// tips (brake bias, balance, tyres). Mirrors ac_rl/setup_advisor.advise().
+ipcMain.handle('rl:suggestSetup', (_e, { track }) => {
+  if (!track) return { ok: false, error: 'no track' };
+  const tdir = path.join(rlDir(), 'models', 'tracks', track);
+  let file = null, car = '';
+  try {
+    let bestT = -1;
+    for (const e of fs.readdirSync(tdir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name === 'banked') continue;
+      const f = path.join(tdir, e.name, 'setup_telemetry.json');
+      if (fs.existsSync(f) && fs.statSync(f).mtimeMs > bestT) {
+        bestT = fs.statSync(f).mtimeMs; file = f; car = e.name;
+      }
+    }
+  } catch { /* no bots */ }
+  if (!file) return { ok: true, car: '', tips: ['No telemetry yet — train or drive this track first.'], brakeBias: null };
+  let s;
+  try { s = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return { ok: true, car, tips: ['Telemetry unreadable yet — keep training.'], brakeBias: null }; }
+  const tips = [];
+  let brakeBias = null;
+  const bn = s.brake_n || 0;
+  if (bn >= 20) {
+    const fr = s.brake_front / bn, rr = s.brake_rear / bn;
+    const delta = Math.max(-6, Math.min(6, (fr - rr) * 6));
+    brakeBias = Math.round((58 - delta) * 10) / 10;
+    if (delta > 1) tips.push(`Fronts lock under braking → move brake bias REARWARD to ~${brakeBias.toFixed(0)}% front.`);
+    else if (delta < -1) tips.push(`Rears lock/step out under braking → move brake bias FORWARD to ~${brakeBias.toFixed(0)}% front.`);
+    else tips.push(`Braking is balanced → brake bias ~${brakeBias.toFixed(0)}% front is about right.`);
+  }
+  const cn = s.corner_n || 0;
+  if (cn >= 20) {
+    const us = (s.understeer_n || 0) / cn, ov = (s.oversteer_n || 0) / cn;
+    if (us > 0.35 && us > ov + 0.1) tips.push('Mid-corner UNDERSTEER → soften front anti-roll bar / lower front tyre pressures ~1 psi, or add front wing.');
+    else if (ov > 0.35 && ov > us + 0.1) tips.push('Mid-corner OVERSTEER → soften rear anti-roll bar / lower rear tyre pressures ~1 psi, or add rear wing / more diff preload.');
+    else tips.push('Cornering balance is fairly neutral.');
+    if ((s.slide_peak || 0) > 3) tips.push('Lots of tyre sliding → a gentler setup (more downforce / softer springs) would be faster and more consistent.');
+  }
+  if (!tips.length) tips.push('Not enough clean laps yet — keep training, then check again.');
+  return { ok: true, car, tips, brakeBias, steps: s.steps || 0 };
 });
 
 // Bring a saved bot back as the track's live bot. The current bot (if any) is
