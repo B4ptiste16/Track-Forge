@@ -21,7 +21,7 @@ so auto-update keeps working. Same app, now TWO sections behind a home page:)
 Stack: Electron (electron-builder NSIS, Windows ARM64) + electron-updater +
 React + TypeScript + Vite + three.js (Z-up) + jszip. Custom ASCII FBX 7.4 writer.
 Location: C:\Users\bapti\Documents\ac-track-forge
-GitHub: https://github.com/B4ptiste16/Track-Forge   Current version: v0.8.0
+GitHub: https://github.com/B4ptiste16/Track-Forge   Current version: v0.10.0
 
 BUILD / RELEASE:
 - Version bumps: use a bump SCRIPT FILE (bump*.js), NOT `node -e "..."` — PowerShell
@@ -53,6 +53,15 @@ ARCHITECTURE — the geometry engine is the single source of truth:
                       Pit & Buildings + layout save/switch toolbar),
                       TracksidePanel, FacilitiesPanel, SegmentEditor2D
                       (modes: segment/zone/building). RunoffPanel was DELETED.
+
+v0.10.0 (2026-07-21): auto-update re-checks every 30 min; trackside strips
++tarmac/+dirt (surfaces TARMAC/DIRT in surfaces.ini); kerb 'painted' (flush);
+wall style 'hay'; Building.kind facades (offices/glass/brick/hangar -> meshes
+DECOR_BUILDING/BLDGLASS/BLDBRICK/BLDHANGAR, one texture each); 2D editor:
+draggable pane divider (App.tsx editFrac, localStorage), click-select segment
+with inline R/angle/dir/length editor, 'lock rest' radius drags (adjusts the
+two neighbouring straights so the corner's exit pose stays fixed - exact 2x2
+solve in SegmentEditor2D onWindowMove, verified numerically).
 
 STATE OF RECENT WORK (v0.7.0 -> v0.7.2):
 - DONE: continuous chooseable-texture trackside strips; tapered/per-part/free
