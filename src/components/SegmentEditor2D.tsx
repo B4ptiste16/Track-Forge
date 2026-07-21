@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TrackProject, Segment, ManualWall } from '../types';
+import type { TrackProject, Segment, ManualWall, CornerConfig } from '../types';
 import type { BuiltTrack } from '../geometry';
 import { perpLeft } from '../geometry';
+import { escapeControlPoints, escapeTypeOf } from '../geometry/escape';
 import { THEME_PALETTES } from '../state/project';
 
 type EditorMode = 'shape' | 'wall' | 'zone' | 'building';
@@ -11,6 +12,7 @@ interface Props {
   built: BuiltTrack;
   onCloseLoop: () => void;
   onSegmentsChange: (segs: Segment[]) => void;
+  onCornersChange: (corners: CornerConfig[]) => void;
   onManualWallsChange: (walls: ManualWall[]) => void;
   onZonePicked: (from: number, to: number, side: 'left' | 'right') => void;
   onPlaceBuilding: (x: number, y: number) => void;
@@ -19,12 +21,14 @@ interface Props {
 interface Transform { minX: number; minY: number; scale: number; ox: number; oy: number; H: number; }
 interface Handle {
   segIndex: number;
-  kind: 'radius' | 'angle';
+  kind: 'radius' | 'angle' | 'escape';
   sx: number; sy: number; // screen
   apexHeading: number;
   entry: [number, number];
   entryHeading: number;
   dir: 'left' | 'right';
+  cornerIndex?: number; // for escape handles
+  nodeIndex?: number; // 0..3 for escape control points
 }
 
 function nearestIndex(built: BuiltTrack, dist: number): number {
@@ -37,7 +41,7 @@ function nearestIndex(built: BuiltTrack, dist: number): number {
   return best;
 }
 
-export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange, onManualWallsChange, onZonePicked, onPlaceBuilding }: Props) {
+export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange, onCornersChange, onManualWallsChange, onZonePicked, onPlaceBuilding }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const txRef = useRef<Transform | null>(null);
   const handlesRef = useRef<Handle[]>([]);
@@ -49,8 +53,8 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   const [lockRest, setLockRest] = useState(true); // radius drags keep the rest of the track in place
   const [resizeTick, setResizeTick] = useState(0);
   // Keep latest project/built/callback + options for window-level drag handlers.
-  const stateRef = useRef({ project, built, onSegmentsChange, lockRest });
-  stateRef.current = { project, built, onSegmentsChange, lockRest };
+  const stateRef = useRef({ project, built, onSegmentsChange, onCornersChange, lockRest });
+  stateRef.current = { project, built, onSegmentsChange, onCornersChange, lockRest };
 
   // Redraw when the pane is resized (the divider above can be dragged).
   useEffect(() => {
@@ -171,6 +175,47 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       ctx.strokeStyle = '#1a1500'; ctx.lineWidth = 1; ctx.stroke();
       ctx.beginPath(); ctx.arc(sx(ex.pos[0]), sy(ex.pos[1]), 5, 0, Math.PI * 2);
       ctx.strokeStyle = '#33e0ff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    // Escape roads: draw the bezier path + 4 draggable control nodes for every
+    // corner that has an escape. Custom shape (escapeNodes) overrides default.
+    for (const span of built.spans) {
+      if (span.kind !== 'corner') continue;
+      const cfg = project.corners.find((c) => c.cornerIndex === span.cornerIndex);
+      if (escapeTypeOf(cfg) === 'none') continue;
+      const segE = project.segments[span.segIndex];
+      const frame = escapeControlPoints(samples, span, segE, project.road.width);
+      if (!frame) continue;
+      const cp = (cfg?.escapeNodes && cfg.escapeNodes.length === 4 ? cfg.escapeNodes : frame.points) as [number, number][];
+      // bezier polyline
+      ctx.beginPath();
+      for (let k = 0; k <= 30; k++) {
+        const u = k / 30, mu = 1 - u;
+        const b0 = mu * mu * mu, b1 = 3 * mu * mu * u, b2 = 3 * mu * u * u, b3 = u * u * u;
+        const x = b0 * cp[0][0] + b1 * cp[1][0] + b2 * cp[2][0] + b3 * cp[3][0];
+        const y = b0 * cp[0][1] + b1 * cp[1][1] + b2 * cp[2][1] + b3 * cp[3][1];
+        if (k === 0) ctx.moveTo(sx(x), sy(y)); else ctx.lineTo(sx(x), sy(y));
+      }
+      ctx.strokeStyle = cfg?.escapeNodes ? '#ff9e3d' : 'rgba(255,158,61,0.6)';
+      ctx.setLineDash([4, 4]); ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+      // control arms (faint) from endpoints to their handles
+      ctx.strokeStyle = 'rgba(255,158,61,0.35)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sx(cp[0][0]), sy(cp[0][1])); ctx.lineTo(sx(cp[1][0]), sy(cp[1][1])); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx(cp[3][0]), sy(cp[3][1])); ctx.lineTo(sx(cp[2][0]), sy(cp[2][1])); ctx.stroke();
+      // 4 nodes: endpoints square-ish (start/end), controls small circles
+      for (let n = 0; n < 4; n++) {
+        const px = sx(cp[n][0]), py = sy(cp[n][1]);
+        handlesRef.current.push({
+          segIndex: span.segIndex, kind: 'escape', sx: px, sy: py,
+          apexHeading: 0, entry: [0, 0], entryHeading: 0, dir: (segE.kind === 'corner' ? segE.dir : 'left'),
+          cornerIndex: span.cornerIndex, nodeIndex: n,
+        });
+        ctx.beginPath();
+        if (n === 0 || n === 3) ctx.rect(px - 5, py - 5, 10, 10);
+        else ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff9e3d'; ctx.fill();
+        ctx.strokeStyle = '#3a2400'; ctx.lineWidth = 1; ctx.stroke();
+      }
     }
 
     // Selected segment highlight (click-to-edit).
@@ -363,9 +408,32 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
     if (!seg || seg.kind !== 'corner') return;
     setSelected(hit.segIndex);
     dragRef.current = { h: hit, startWorld: screenToWorld(ev.clientX, ev.clientY), startRadius: seg.radius };
-    window.addEventListener('mousemove', onWindowMove);
+    window.addEventListener('mousemove', hit.kind === 'escape' ? onEscapeMove : onWindowMove);
     window.addEventListener('mouseup', onWindowUp);
     ev.preventDefault();
+  };
+
+  // Drag one escape control node -> write this corner's escapeNodes. Seeds
+  // from the current default shape so the first drag starts exactly on it.
+  const onEscapeMove = (ev: MouseEvent) => {
+    const drag = dragRef.current;
+    if (!drag || drag.h.kind !== 'escape') return;
+    const { project: proj, built: b, onCornersChange: cb } = stateRef.current;
+    const span = b.spans.find((sp) => sp.segIndex === drag.h.segIndex);
+    if (!span) return;
+    const seg = proj.segments[drag.h.segIndex];
+    const frame = escapeControlPoints(b.centerline, span, seg, proj.road.width);
+    if (!frame) return;
+    const cur = proj.corners.find((c) => c.cornerIndex === drag.h.cornerIndex);
+    const nodes: [number, number][] =
+      cur?.escapeNodes && cur.escapeNodes.length === 4
+        ? cur.escapeNodes.map((p) => [p[0], p[1]])
+        : frame.points.map((p) => [p[0], p[1]]);
+    nodes[drag.h.nodeIndex!] = screenToWorld(ev.clientX, ev.clientY);
+    const corners = proj.corners.map((c) =>
+      c.cornerIndex === drag.h.cornerIndex ? { ...c, escapeNodes: nodes } : c,
+    );
+    cb(corners);
   };
 
   const onWindowMove = (ev: MouseEvent) => {
@@ -455,8 +523,25 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   const onWindowUp = () => {
     dragRef.current = null;
     window.removeEventListener('mousemove', onWindowMove);
+    window.removeEventListener('mousemove', onEscapeMove);
     window.removeEventListener('mouseup', onWindowUp);
   };
+
+  // Reset the selected corner's escape shape back to the auto default.
+  const resetEscapeShape = () => {
+    if (selected === null) return;
+    const span = built.spans.find((sp) => sp.segIndex === selected);
+    if (!span) return;
+    onCornersChange(project.corners.map((c) =>
+      c.cornerIndex === span.cornerIndex ? { ...c, escapeNodes: undefined } : c,
+    ));
+  };
+  const selectedCornerCfg = selected !== null
+    ? project.corners.find((c) => {
+      const sp = built.spans.find((s) => s.segIndex === selected);
+      return sp && c.cornerIndex === sp.cornerIndex;
+    })
+    : undefined;
 
   const finishWall = () => {
     if (draft.length >= 2) {
@@ -520,7 +605,12 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
                 <button className="small" onClick={() => setSelected(null)}>✕</button>
               </span>
             ) : (
-              <span className="muted hint">click a segment to edit · drag ● radius · ○ angle</span>
+              <span className="muted hint">click a segment to edit · drag ● radius · ○ angle · ▢ escape nodes</span>
+            )}
+            {selectedCornerCfg && escapeTypeOf(selectedCornerCfg) !== 'none' && selectedCornerCfg.escapeNodes && (
+              <button className="small" onClick={resetEscapeShape} title="Reset this corner's escape road to its default shape">
+                reset escape shape
+              </button>
             )}
             <label className="checkbox" title="While dragging a corner's radius, adjust the two neighbouring straights so the REST of the track stays exactly where it is">
               <input type="checkbox" checked={lockRest} onChange={(e) => setLockRest(e.target.checked)} />

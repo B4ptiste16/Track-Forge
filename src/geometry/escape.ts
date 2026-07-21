@@ -56,10 +56,62 @@ function emitBox(m: MeshData, cx: number, cy: number, z0: number, A: [number, nu
 
 interface PathPt { x: number; y: number; tx: number; ty: number; half: number; z: number; }
 
-function escapeTypeOf(cfg: CornerConfig | undefined): EscapeType {
+export function escapeTypeOf(cfg: CornerConfig | undefined): EscapeType {
   if (!cfg) return 'none';
   if (cfg.escapeType) return cfg.escapeType;
   return cfg.escape ? 'sausage' : 'none';
+}
+
+// The DEFAULT escape control frame for a corner — the 4 cubic-bezier control
+// points [split, ctrl1, ctrl2, rejoin] plus the elevations and start width.
+// Single source of truth: the geometry and the 2D editor both use this so a
+// custom shape starts exactly where the default was. Returns null if the
+// corner geometry can't host an escape (too near the lap end, etc.).
+export interface EscapeFrame {
+  points: [[number, number], [number, number], [number, number], [number, number]];
+  zStart: number;
+  zEnd: number;
+  startHalf: number;
+}
+
+export function escapeControlPoints(
+  samples: CenterlineSample[],
+  span: SegmentSpan,
+  seg: { kind: 'corner'; radius: number; dir: 'left' | 'right' } | { kind: string },
+  width: number,
+): EscapeFrame | null {
+  if (seg.kind !== 'corner' || samples.length < 2) return null;
+  const radius = (seg as { radius: number }).radius;
+  const dir = (seg as { dir: 'left' | 'right' }).dir;
+
+  let e = 0;
+  for (let i = 0; i < samples.length; i++) {
+    if (samples[i].segIndex === span.segIndex) { e = i; break; }
+  }
+  const s0 = samples[e];
+  const d0: [number, number] = [Math.cos(s0.heading), Math.sin(s0.heading)];
+  const kSign = dir === 'left' ? 1 : -1;
+
+  const START_HALF = width / 2;
+  const p0 = offsetPoint(s0, -kSign * (START_HALF - 0.3));
+
+  const total = samples[samples.length - 1].dist;
+  const rDist = Math.min(total - 1, span.endDist + Math.max(35, radius * 0.6));
+  let r = samples.length - 1;
+  for (let i = 0; i < samples.length; i++) {
+    if (samples[i].dist >= rDist) { r = i; break; }
+  }
+  const sR = samples[r];
+  const d1: [number, number] = [Math.cos(sR.heading), Math.sin(sR.heading)];
+  const END_HALF = 2.6;
+  const p3 = offsetPoint(sR, -kSign * (width / 2 + END_HALF - 0.6));
+
+  const chord = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]);
+  const arm = Math.max(18, Math.min(120, chord * 0.42));
+  const p1: [number, number] = [p0[0] + d0[0] * arm, p0[1] + d0[1] * arm];
+  const p2: [number, number] = [p3[0] - d1[0] * arm, p3[1] - d1[1] * arm];
+
+  return { points: [[p0[0], p0[1]], p1, p2, [p3[0], p3[1]]], zStart: s0.pos[2], zEnd: sR.pos[2], startHalf: START_HALF };
 }
 
 export function buildEscapes(
@@ -84,38 +136,14 @@ export function buildEscapes(
     const type = escapeTypeOf(cfg);
     if (type === 'none') continue;
 
-    // entry frame (corner start)
-    let e = 0;
-    for (let i = 0; i < samples.length; i++) {
-      if (samples[i].segIndex === span.segIndex) { e = i; break; }
-    }
-    const s0 = samples[e];
-    const d0: [number, number] = [Math.cos(s0.heading), Math.sin(s0.heading)];
-    const kSign = seg.dir === 'left' ? 1 : -1; // corner curves off toward +kSign*left
-
-    // Split point: outside edge at corner entry (where the overshoot begins).
-    const START_HALF = width / 2;
-    const p0 = offsetPoint(s0, -kSign * (START_HALF - 0.3));
-
-    // Rejoin frame: a bit after the corner exit, at the outside edge.
-    const total = samples[samples.length - 1].dist;
-    const rDist = Math.min(total - 1, span.endDist + Math.max(35, seg.radius * 0.6));
-    let r = samples.length - 1;
-    for (let i = 0; i < samples.length; i++) {
-      if (samples[i].dist >= rDist) { r = i; break; }
-    }
-    const sR = samples[r];
-    const d1: [number, number] = [Math.cos(sR.heading), Math.sin(sR.heading)];
+    const frame = escapeControlPoints(samples, span, seg, width);
+    if (!frame) continue;
+    const kSign = seg.dir === 'left' ? 1 : -1;
+    // Custom shape overrides the default control points (the editor drags these).
+    const cp = (cfg?.escapeNodes && cfg.escapeNodes.length === 4 ? cfg.escapeNodes : frame.points) as
+      [[number, number], [number, number], [number, number], [number, number]];
+    const [p0, p1, p2, p3] = cp;
     const END_HALF = 2.6;
-    const p3 = offsetPoint(sR, -kSign * (width / 2 + END_HALF - 0.6));
-
-    // Cubic bezier: tangent to d0 at the split, tangent to d1 at the rejoin.
-    // Control arm length ~40% of the straight-line distance always yields a
-    // smooth curve, no intersection test — the run-off ALWAYS bends back.
-    const chord = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]);
-    const arm = Math.max(18, Math.min(120, chord * 0.42));
-    const p1: [number, number] = [p0[0] + d0[0] * arm, p0[1] + d0[1] * arm];
-    const p2: [number, number] = [p3[0] - d1[0] * arm, p3[1] - d1[1] * arm];
 
     const M = 44;
     const path: PathPt[] = [];
@@ -125,14 +153,12 @@ export function buildEscapes(
       const b0 = mu * mu * mu, b1 = 3 * mu * mu * u, b2 = 3 * mu * u * u, b3 = u * u * u;
       const x = b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0];
       const y = b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1];
-      // derivative
       let dx = 3 * mu * mu * (p1[0] - p0[0]) + 6 * mu * u * (p2[0] - p1[0]) + 3 * u * u * (p3[0] - p2[0]);
       let dy = 3 * mu * mu * (p1[1] - p0[1]) + 6 * mu * u * (p2[1] - p1[1]) + 3 * u * u * (p3[1] - p2[1]);
       const dl = Math.hypot(dx, dy) || 1;
       dx /= dl; dy /= dl;
-      // width: full road at the split, tapering to the narrow rejoin throat
-      const half = u < 0.3 ? START_HALF + (5 - START_HALF) * (u / 0.3) : 5 + (END_HALF - 5) * ((u - 0.3) / 0.7);
-      const z = s0.pos[2] + (sR.pos[2] - s0.pos[2]) * u + LIFT;
+      const half = u < 0.3 ? frame.startHalf + (5 - frame.startHalf) * (u / 0.3) : 5 + (END_HALF - 5) * ((u - 0.3) / 0.7);
+      const z = frame.zStart + (frame.zEnd - frame.zStart) * u + LIFT;
       path.push({ x, y, tx: dx, ty: dy, half, z });
     }
 

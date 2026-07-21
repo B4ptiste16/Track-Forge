@@ -232,6 +232,18 @@ export default function App() {
               built={built}
               onCloseLoop={onCloseLoop}
               onSegmentsChange={setSegments}
+              onCornersChange={(corners) =>
+                // The editor sees `effective` corners (kerbs uniformized when
+                // customize is off), so merge ONLY escapeNodes back into the
+                // real corners — never overwrite real per-corner kerb settings.
+                setProject({
+                  ...project,
+                  corners: project.corners.map((rc) => {
+                    const inc = corners.find((c) => c.cornerIndex === rc.cornerIndex);
+                    return inc ? { ...rc, escapeNodes: inc.escapeNodes } : rc;
+                  }),
+                })
+              }
               onManualWallsChange={(manualWalls) => setProject({ ...project, manualWalls })}
               onZonePicked={onZonePicked}
               onPlaceBuilding={onPlaceBuilding}

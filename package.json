@@ -1,7 +1,7 @@
 {
   "name": "ac-track-forge",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "AC BAPTOU - build Assetto Corsa tracks and train an AI driver on them.",
   "author": "B4ptiste16",
   "type": "module",

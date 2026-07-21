@@ -37,6 +37,10 @@ export interface CornerConfig {
   exit: KerbType;
   escape?: boolean; // LEGACY: migrated to escapeType on load
   escapeType?: EscapeType; // escape road kind on the outside of this corner
+  // Optional custom escape-road shape: 4 world-XY cubic-bezier control points
+  // [start, ctrl1, ctrl2, end]. Drag them in the 2D editor to move the split,
+  // the rejoin, and the curve. Absent = the auto-computed default shape.
+  escapeNodes?: [number, number][];
   kerbWidth?: number; // legacy single width (fallback for the per-part widths)
   entryW?: number; // m — entry kerb cross-section width
   apexW?: number; // m — apex kerb cross-section width
