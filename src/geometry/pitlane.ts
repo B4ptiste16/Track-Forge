@@ -20,11 +20,23 @@ export interface PitZone {
 }
 
 export function pitZone(project: TrackProject, total: number): PitZone {
-  const start = Math.max(0, Math.min(project.pit.entry, project.pit.exit));
-  const end = Math.min(total, Math.max(project.pit.entry, project.pit.exit));
+  // Exit BEFORE entry = the pit lane CROSSES the start/finish line (entry near
+  // the end of the lap, exit after the line). Zone coordinates are UNWRAPPED:
+  // `end` may exceed `total` - map a sample distance with pitRel() before
+  // comparing it against the zone.
+  const e0 = Math.max(0, Math.min(total, project.pit.entry));
+  const e1 = Math.max(0, Math.min(total, project.pit.exit));
+  const wraps = e1 < e0;
+  const start = e0;
+  const end = wraps ? e1 + total : e1;
   const span = Math.max(1, end - start);
   const taper = Math.min(35, span / 3);
   return { start, end, taper, boxA: start + taper + 4, boxB: end - taper - 4 };
+}
+
+// Unwrapped zone coordinate of a sample distance (0..total).
+export function pitRel(d: number, z: PitZone, total: number): number {
+  return z.end > total && d < z.start ? d + total : d;
 }
 
 // Which samples the pit lane covers, on which side, at what width. The width
@@ -39,7 +51,7 @@ export function computePitInfo(samples: CenterlineSample[], project: TrackProjec
   const side = project.pit.side;
 
   for (let i = 0; i < samples.length; i++) {
-    const d = samples[i].dist;
+    const d = pitRel(samples[i].dist, z, total);
     if (d < z.start || d > z.end) continue;
     const ramp = Math.max(0, Math.min(1, (d - z.start) / z.taper, (z.end - d) / z.taper));
     info[i][side] = project.pit.width * ramp;
@@ -87,11 +99,14 @@ export function buildPaddock(
 
   const side = project.pit.side;
   const sign = side === 'left' ? 1 : -1;
+  const rel = (i: number) => pitRel(samples[i].dist, z, total);
   const idx: number[] = [];
   for (let i = 0; i < samples.length; i++) {
-    if (samples[i].dist >= z.boxA && samples[i].dist <= z.boxB) idx.push(i);
+    if (rel(i) >= z.boxA && rel(i) <= z.boxB) idx.push(i);
   }
+  idx.sort((a, b) => rel(a) - rel(b)); // wrap: tail-of-lap samples come first
   for (let n = 0; n < idx.length - 1; n++) {
+    if (rel(idx[n + 1]) - rel(idx[n]) > 6) continue; // wrap seam - not adjacent
     const emit = (i: number): [Vec3, Vec3] => {
       const s = samples[i];
       const [lx, ly] = perpLeft(s.heading);
@@ -141,10 +156,12 @@ export function buildPitStructures(
   if (z.boxB - z.boxA < 12) return out;
   const side = project.pit.side;
   const sign = side === 'left' ? 1 : -1;
+  const rel = (i: number) => pitRel(samples[i].dist, z, totalLength);
   const idx: number[] = [];
   for (let i = 0; i < samples.length; i++) {
-    if (samples[i].dist >= z.boxA && samples[i].dist <= z.boxB) idx.push(i);
+    if (rel(i) >= z.boxA && rel(i) <= z.boxB) idx.push(i);
   }
+  idx.sort((a, b) => rel(a) - rel(b)); // wrap: keep zone order, not lap order
   if (idx.length < 2) return out;
 
   const at = (i: number, off: number): Vec3 => {
@@ -158,7 +175,7 @@ export function buildPitStructures(
   const WALL_H = 1.0;
   for (let n = 0; n < idx.length - 1; n++) {
     const i = idx[n], j = idx[n + 1];
-    if (samples[i].dist < z.boxA + 2 || samples[j].dist > z.boxB - 2) continue;
+    if (rel(i) < z.boxA + 2 || rel(j) > z.boxB - 2 || rel(j) - rel(i) > 6) continue;
     const a = at(i, 0), b = at(j, 0);
     const [lx, ly] = perpLeft(samples[i].heading);
     const toLane: Vec3 = [lx * sign, ly * sign, 0];
@@ -183,6 +200,7 @@ export function buildPitStructures(
   };
   for (let n = 0; n < idx.length - 1; n++) {
     const i = idx[n], j = idx[n + 1];
+    if (rel(j) - rel(i) > 6) continue; // wrap seam
     const [lx, ly] = perpLeft(samples[i].heading);
     const toLane: Vec3 = [-lx * sign, -ly * sign, 0]; // building front faces the lane
     const f1 = at(i, off0), f2 = at(j, off0);
@@ -200,9 +218,9 @@ export function buildPitStructures(
   // garage doors: dark quads slightly in front of the facade, every 8 m
   for (let d = z.boxA + 4; d < z.boxB - 6; d += 8) {
     let i0 = idx[0];
-    for (const i of idx) { if (samples[i].dist >= d) { i0 = i; break; } }
+    for (const i of idx) { if (rel(i) >= d) { i0 = i; break; } }
     let i1 = i0;
-    for (const i of idx) { if (samples[i].dist >= d + 5) { i1 = i; break; } }
+    for (const i of idx) { if (rel(i) >= d + 5) { i1 = i; break; } }
     if (i1 === i0) continue;
     const [lx, ly] = perpLeft(samples[i0].heading);
     const toLane: Vec3 = [-lx * sign, -ly * sign, 0];
@@ -223,14 +241,15 @@ export function buildPitStructures(
   };
   // continuous line along the lane's outer edge
   for (let n = 0; n < idx.length - 1; n++) {
+    if (rel(idx[n + 1]) - rel(idx[n]) > 6) continue; // wrap seam
     stripe(idx[n], idx[n + 1], project.pit.width - 0.35, project.pit.width - 0.15);
   }
   // transverse box line every 8 m
   for (let d = z.boxA + 4; d < z.boxB - 2; d += 8) {
     let i0 = idx[0];
-    for (const i of idx) { if (samples[i].dist >= d) { i0 = i; break; } }
+    for (const i of idx) { if (rel(i) >= d) { i0 = i; break; } }
     let i1 = i0;
-    for (const i of idx) { if (samples[i].dist >= d + 0.4) { i1 = i; break; } }
+    for (const i of idx) { if (rel(i) >= d + 0.4) { i1 = i; break; } }
     if (i1 !== i0) stripe(i0, i1, 0.4, project.pit.width - 0.5);
   }
   return out;

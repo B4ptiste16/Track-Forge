@@ -67,6 +67,9 @@ export function FacilitiesPanel({ project, built, onChange }: Props) {
           <label>Exit: {Math.round(project.pit.exit)} m
             <input type="range" min={0} max={total} step={1} value={project.pit.exit}
               onChange={(e) => pit({ exit: Number(e.target.value) })} />
+            <span className="muted" style={{ fontSize: 11 }}>
+              exit BEFORE entry = pit lane crosses the start/finish line
+            </span>
           </label>
           <label className="checkbox">
             <input type="checkbox" checked={project.pit.paddock ?? true} onChange={(e) => pit({ paddock: e.target.checked })} />

@@ -63,7 +63,7 @@ export interface RlLive {
     lat?: number; off?: number; damage?: number; steer?: number; gas?: number;
     brake?: number; note?: string;
   } | null;
-  model: { steps: number; savedAt: number } | null;
+  model: { steps: number; savedAt: number; car?: string } | null;
   banked: string[];
   saved?: RlSavedBot[];
 }

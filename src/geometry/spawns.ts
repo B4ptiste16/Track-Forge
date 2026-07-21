@@ -22,7 +22,9 @@ function cross(a: Vec3, b: Vec3): Vec3 {
 // Interpolate position + travel tangent at a distance along the centerline.
 function frameAtDist(samples: CenterlineSample[], dist: number): Frame {
   const total = samples[samples.length - 1].dist;
-  const d = Math.max(0, Math.min(total, dist));
+  // WRAP instead of clamping: a pit zone crossing the S/F line produces box
+  // distances beyond `total`, which belong at the start of the lap.
+  const d = total > 0 ? ((dist % total) + total) % total : 0;
 
   let i = 0;
   while (i < samples.length - 1 && samples[i + 1].dist < d) i++;
@@ -130,9 +132,12 @@ export function buildEmpties(
   out.push(makeEmpty('AC_HOTLAP_START_0', frameAtDist(samples, sf), 0));
 
   // Start/finish timing gate posts: left and right road edges at the S/F line.
+  // Span the WHOLE corridor (run-off both sides + the pit lane), so the
+  // crossing registers even off track or driving through the pits.
   const gate = frameAtDist(samples, sf);
-  out.push(makeEmpty('AC_TIME_0_L', gate, w / 2));
-  out.push(makeEmpty('AC_TIME_0_R', gate, -w / 2));
+  const gateSpan = w / 2 + 30;
+  out.push(makeEmpty('AC_TIME_0_L', gate, gateSpan));
+  out.push(makeEmpty('AC_TIME_0_R', gate, -gateSpan));
 
   return out;
 }

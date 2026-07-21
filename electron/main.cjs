@@ -363,24 +363,41 @@ ipcMain.handle('rl:live', async (_e, { track } = {}) => {
     out.live = JSON.parse(fs.readFileSync(path.join(RL_LOCAL, 'live.json'), 'utf8'));
   } catch { /* trainer not running yet */ }
   if (track) {
+    // Bots are per TRACK+CAR: models/tracks/<track>/<car>/ac_sac.zip (legacy
+    // bots sit directly in the track dir until the trainer migrates them).
+    // Show the most recently trained car's bot for the selected track.
     const tdir = path.join(rlDir(), 'models', 'tracks', track);
-    const modelPath = path.join(tdir, 'ac_sac.zip');
+    let botDir = tdir, car = '', modelPath = path.join(tdir, 'ac_sac.zip');
+    try {
+      let bestT = fs.existsSync(modelPath) ? fs.statSync(modelPath).mtimeMs : -1;
+      for (const e of fs.readdirSync(tdir, { withFileTypes: true })) {
+        if (!e.isDirectory() || e.name === 'banked') continue;
+        const mp = path.join(tdir, e.name, 'ac_sac.zip');
+        if (fs.existsSync(mp) && fs.statSync(mp).mtimeMs > bestT) {
+          bestT = fs.statSync(mp).mtimeMs;
+          botDir = path.join(tdir, e.name);
+          car = e.name;
+          modelPath = mp;
+        }
+      }
+    } catch { /* track has no bots yet */ }
     try {
       const st = fs.statSync(modelPath);
-      const cached = rlModelCache.get(track);
+      const cacheKey = `${track}/${car}`;
+      const cached = rlModelCache.get(cacheKey);
       if (!cached || st.mtimeMs !== cached.mtimeMs) {
         const JSZip = require('jszip');
         const zip = await JSZip.loadAsync(fs.readFileSync(modelPath));
         const data = JSON.parse(await zip.file('data').async('string'));
-        rlModelCache.set(track, {
+        rlModelCache.set(cacheKey, {
           mtimeMs: st.mtimeMs,
-          info: { steps: data.num_timesteps || 0, savedAt: st.mtimeMs },
+          info: { steps: data.num_timesteps || 0, savedAt: st.mtimeMs, car },
         });
       }
-      out.model = rlModelCache.get(track).info;
+      out.model = rlModelCache.get(cacheKey).info;
     } catch { /* no bot for this track yet */ }
     try {
-      out.banked = fs.readdirSync(path.join(tdir, 'banked')).filter((f) => f.endsWith('.zip'));
+      out.banked = fs.readdirSync(path.join(botDir, 'banked')).filter((f) => f.endsWith('.zip'));
     } catch { /* none banked */ }
     // Saved (archived) bots for THIS track: archive/saved_<track>_<label>_<ts>/
     try {

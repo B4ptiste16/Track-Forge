@@ -3,7 +3,7 @@ import type { ChangeEvent } from 'react';
 import type { TrackProject, Segment } from './types';
 import { buildTrack, buildCenterline } from './geometry';
 import {
-  defaultProject, syncCorners, uniformCorners, withDefaults, minCornerRadius,
+  defaultProject, syncCorners, uniformCorners, withDefaults,
   snapshotLayout, applyLayout, newZoneId,
 } from './state/project';
 import { closeLoop } from './geometry/closeLoop';
@@ -69,9 +69,10 @@ export default function App() {
 
   // Edit segments: keep CornerConfig[] sized and clamp the S/F slider.
   const setSegments = (rawSegments: Segment[]) => {
-    const minR = minCornerRadius(project.road.width);
+    // Don't clamp radii while the user TYPES (replacing '5' with '9' mid-keypress
+    // was maddening) - build-time geometry clamps safely on its own.
     const segments = rawSegments.map((s) =>
-      s.kind === 'corner' ? { ...s, radius: Math.max(s.radius, minR) } : s,
+      s.kind === 'corner' ? { ...s, radius: Math.max(s.radius, 1) } : s,
     );
     const corners = syncCorners(segments, project.corners, project.road.defaultKerb);
     const total = buildCenterline(segments).totalLength;

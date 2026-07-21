@@ -6,7 +6,7 @@ import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
-import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone } from './pitlane';
+import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel } from './pitlane';
 import { buildBuildings } from './buildings';
 import {
   buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
@@ -113,6 +113,22 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   });
   const resolveSide = (d: number, segIndex: number, side: 'left' | 'right'): ResolvedSide => {
     const base = toResolved(stripAt(d, side));
+    // Inside the pit zone on the pit side, the trackside strip must be a clean
+    // CONCRETE apron under lane/boxes/paddock - a gravel strip poking through
+    // the pit boxes looked broken. Wall goes beyond the whole pit complex.
+    if (project.pit.enabled && side === project.pit.side) {
+      const zz = pitZone(project, totalLength);
+      const rd = pitRel(d, zz, totalLength);
+      if (rd >= zz.start && rd <= zz.end) {
+        const pitDepth = project.pit.width + ((project.pit.paddock ?? true) ? 12 : 2) + 8;
+        return {
+          surface: '1CONCRETE',
+          width: Math.max(base.width, pitDepth),
+          wall: base.wall,
+          wallDist: Math.max(base.wallDist ?? base.width, pitDepth),
+        };
+      }
+    }
     const corner = segCorner.get(segIndex);
     const outside = corner ? (corner.dir === 'left' ? 'right' : 'left') : null;
     if (corner?.escape && side === outside) {

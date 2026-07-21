@@ -163,6 +163,29 @@ export function buildDecor(
     }
   }
 
+  // A stand candidate must not sit where ANOTHER part of the lap passes
+  // (e.g. after closing the loop, the return leg can run right through the
+  // spot). Footprint ~ off0..off0+13 m from its own samples; reject if any
+  // FAR-away (by lap distance) sample comes within that band + road width.
+  const standAreaClear = (sub: number[], side: 'left' | 'right', off0: number): boolean => {
+    const sign = side === 'left' ? 1 : -1;
+    for (let n = 0; n < sub.length; n += 3) {
+      const s0 = samples[sub[n]];
+      const [lx, ly] = perpLeft(s0.heading);
+      const mx = s0.pos[0] + lx * (off0 + 6) * sign;
+      const my = s0.pos[1] + ly * (off0 + 6) * sign;
+      for (let i = 0; i < samples.length; i += 2) {
+        const other = samples[i];
+        let dd = Math.abs(other.dist - s0.dist);
+        dd = Math.min(dd, Math.abs(dd - samples[samples.length - 1].dist));
+        if (dd < 60) continue; // its own neighbourhood
+        const dx = other.pos[0] - mx, dy = other.pos[1] - my;
+        if (dx * dx + dy * dy < (7 + width / 2) * (7 + width / 2)) return false;
+      }
+    }
+    return true;
+  };
+
   // --- Grandstands: longest straight + outside of turn 1 ------------------
   const straights = spans.filter((s) => s.kind === 'straight')
     .sort((a, b) => (b.endDist - b.startDist) - (a.endDist - a.startDist));
@@ -180,7 +203,8 @@ export function buildDecor(
       const sub = idx.filter((i) => samples[i].dist >= d0 && samples[i].dist <= d1);
       if (sub.length >= 2) {
         const mid = sub[Math.floor(sub.length / 2)];
-        buildStand(stand, frame, samples, sub, side, clearOff(mid, side), seats);
+        const off = clearOff(mid, side);
+        if (standAreaClear(sub, side, off)) buildStand(stand, frame, samples, sub, side, off, seats);
       }
     }
   }
@@ -189,7 +213,8 @@ export function buildDecor(
     if (idx.length >= 4) {
       const outside: 'left' | 'right' = t1.dir === 'left' ? 'right' : 'left';
       const mid = idx[Math.floor(idx.length / 2)];
-      buildStand(stand, frame, samples, idx, outside, clearOff(mid, outside) + 9, seats);
+      const off = clearOff(mid, outside) + 9;
+      if (standAreaClear(idx, outside, off)) buildStand(stand, frame, samples, idx, outside, off, seats);
     }
   }
 

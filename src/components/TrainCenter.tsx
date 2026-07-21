@@ -178,7 +178,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
               <div className="train-stat-big">{live.model ? fmt(live.model.steps) : '—'}</div>
               <div className="muted">
                 {live.model
-                  ? `steps trained on this track${agoMin !== null ? ` · saved ${agoMin} min ago` : ''}`
+                  ? `steps trained${live.model.car ? ` · ${live.model.car}` : ''}${agoMin !== null ? ` · saved ${agoMin} min ago` : ''}`
                   : selected
                     ? 'no bot for this track yet — it will start from the shared pretrained base'
                     : 'select a track'}

@@ -378,12 +378,16 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
 
     let next: Segment;
     if (drag.h.kind === 'radius') {
-      // Outward (away from arc centre) drag increases the radius.
+      // Outward (away from arc centre) drag increases the radius. Gain is in
+      // SCREEN pixels (not world metres), so a zoomed-out map doesn't turn a
+      // small mouse move into a huge radius jump.
       const [plx, ply] = perpLeft(drag.h.apexHeading);
       const outSign = drag.h.dir === 'left' ? -1 : 1; // away from centre
       const dx = cur[0] - drag.startWorld[0], dy = cur[1] - drag.startWorld[1];
-      const delta = (dx * plx + dy * ply) * outSign;
-      next = { ...seg, radius: Math.max(5, Math.round((drag.startRadius + delta) * 10) / 10) };
+      const worldDelta = (dx * plx + dy * ply) * outSign;
+      const pxDelta = worldDelta * (txRef.current?.scale ?? 1); // metres -> px
+      const delta = pxDelta * 0.35; // 0.35 m of radius per pixel dragged
+      next = { ...seg, radius: Math.max(1, Math.round((drag.startRadius + delta) * 10) / 10) };
       // LOCAL REPROFILING: segments are chained, so changing a radius normally
       // shifts everything after the corner. With the lock on, absorb the shift
       // in the two NEIGHBOURING STRAIGHTS: the corner's chord displacement is
@@ -438,7 +442,10 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       let raw = aD - aE;
       if (drag.h.dir === 'right') raw = -raw;
       raw = ((raw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-      const deg = Math.max(1, Math.min(350, Math.round((raw * 180) / Math.PI)));
+      let deg = Math.max(1, Math.min(350, Math.round((raw * 180) / Math.PI)));
+      // rate-limit: the atan2 can snap across the wrap; never jump more than
+      // 6 deg per mouse event, so the corner can't flip tiny/huge in one move
+      deg = Math.max(seg.angle - 6, Math.min(seg.angle + 6, deg));
       next = { ...seg, angle: deg };
     }
     const segs = proj.segments.map((s, i) => (i === drag.h.segIndex ? next : s));
@@ -488,8 +495,8 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
                     <>
                       <b>corner</b>
                       <label>R
-                        <input type="number" min={5} step={1} value={sSel.radius}
-                          onChange={(e) => patch({ radius: Math.max(5, Number(e.target.value)) })} />
+                        <input type="number" min={1} step={1} value={sSel.radius}
+                          onChange={(e) => patch({ radius: Math.max(1, Number(e.target.value)) })} />
                       </label>
                       <label>angle°
                         <input type="number" min={1} max={350} step={1} value={sSel.angle}
