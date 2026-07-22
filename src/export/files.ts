@@ -8,7 +8,7 @@ import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
 import { genKsPersistence } from './ksPersistence';
-import { genFastLaneAi } from './ai';
+import { genFastLaneAi, genPitLaneAi } from './ai';
 
 // One file in the track package. Either text or binary bytes.
 export interface TrackFile {
@@ -25,6 +25,7 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
   const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme, project.walls.style);
   const fbxText = genFbx(project, built);
   const aiLine = genFastLaneAi(built, project.road.width, project.startFinishDist);
+  const pitLane = genPitLaneAi(built, project);
 
   const files: TrackFile[] = [
     { path: `${slug}.fbx`, text: fbxText },
@@ -35,6 +36,8 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },
     // AI racing line — AC's opponents + the "ideal line" app work out of the box.
     ...(aiLine.length ? [{ path: 'ai/fast_lane.ai', bytes: aiLine }] : [{ path: 'ai/.gitkeep', text: '' }]),
+    // Pit-lane spline — AC recognises the pit lane + applies its speed limiter.
+    ...(pitLane.length ? [{ path: 'ai/pit_lane.ai', bytes: pitLane }] : []),
     { path: 'blender_fallback/build_track.py', text: genBlenderScript(project, built, slug) },
     { path: `${slug}.acforge.json`, text: JSON.stringify(project, null, 2) },
     ...textures.map((t) => ({ path: t.path, bytes: t.bytes })),

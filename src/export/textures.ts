@@ -316,6 +316,47 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       grain(ctx, 4);
       break;
     }
+    case 'DECOR_MARKER': {
+      // three horizontal bands (v = distance): 100 m, 50 m, 25 m, each a white
+      // board with descending black chevrons so the count reads as the distance.
+      const third = SIZE / 3;
+      const counts = [3, 2, 1]; // top band = furthest (3 chevrons) ... 1 nearest
+      for (let bnd = 0; bnd < 3; bnd++) {
+        const y0 = bnd * third;
+        ctx.fillStyle = '#f4f4f4';
+        ctx.fillRect(0, y0, SIZE, third);
+        ctx.fillStyle = '#111';
+        const nC = counts[bnd];
+        const cw = SIZE / (nC * 2 + 1);
+        for (let k = 0; k < nC; k++) {
+          const x = cw * (k * 2 + 1);
+          ctx.fillRect(x, y0 + 10, cw, third - 20);
+        }
+        ctx.strokeStyle = '#111'; ctx.lineWidth = 4;
+        ctx.strokeRect(2, y0 + 2, SIZE - 4, third - 4);
+      }
+      break;
+    }
+    case 'DECOR_GANTRY': {
+      grain(ctx, 5);
+      speckle(ctx, 200, [0.4, 1.0], 0.08, false);
+      break;
+    }
+    case 'DECOR_LIGHTS': {
+      // black panel with a row of five red start lights (lit).
+      ctx.fillStyle = '#0b0d11';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const n = 5, r = SIZE / 14;
+      for (let k = 0; k < n; k++) {
+        const cx = (SIZE / (n + 1)) * (k + 1);
+        const cy = SIZE / 2;
+        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, r * 1.6);
+        g.addColorStop(0, '#ff5a4a'); g.addColorStop(0.6, '#d21f10'); g.addColorStop(1, 'rgba(120,10,5,0.2)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
     case 'DECOR_STAND': {
       bandsAcross(ctx, SEAT_PATTERNS[theme] ?? SEAT_PATTERNS.tarmac_day); // seat colour blocks
       ctx.fillStyle = 'rgba(0,0,0,0.30)'; // seat rows

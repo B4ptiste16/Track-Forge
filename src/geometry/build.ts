@@ -62,13 +62,38 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     segCorner.set(span.segIndex, { dir: seg.dir, radius: seg.radius, escape: escapeOf(cfg) });
   }
 
-  // Inner offset where the grass/runoff starts. Only the pit lane reserves room
-  // (it's a separate drivable surface); kerbs do NOT — the grass runs all the way
-  // to the road edge and the kerb sits flush on top of it. This guarantees the
-  // ground is continuous so there are never gaps to fall through between kerbs.
+  // Pit complex footprint (lane + paddock) — the trackside runoff must start
+  // BEYOND it on the pit side, or the runoff apron overlaps the pit ground
+  // (that was the "runoff overlaps pit lane" bug). Paddock depth is known here
+  // (same formula as where the paddock mesh is built), so we can reserve it.
+  let pitPaddockDepth = 0;
+  if (project.pit.enabled && (project.pit.paddock ?? true)) {
+    const z = pitZone(project, totalLength);
+    const span = Math.max(1, z.boxB - 4 - (z.boxA + 4));
+    const perRow = Math.max(1, Math.floor(span / 8));
+    const rows = Math.ceil(project.grid.pits / perRow);
+    pitPaddockDepth = 8 + rows * 7;
+  }
+  // Outer edge of the whole pit complex at a sample on the pit side (0 elsewhere).
+  const pitComplexOuter = (i: number, side: 'left' | 'right'): number => {
+    if (!project.pit.enabled || side !== project.pit.side) return 0;
+    const z = pitZone(project, totalLength);
+    const rd = pitRel(samples[i].dist, z, totalLength);
+    if (rd < z.start || rd > z.end) return 0;
+    // in the full-width box zone reserve lane + paddock; in the tapers just the
+    // (tapered) lane, so the runoff hugs the lane where there's no paddock.
+    const laneW = pitInfo[i][side];
+    if (rd >= z.boxA && rd <= z.boxB) return project.pit.width + pitPaddockDepth + 2;
+    return laneW;
+  };
+
+  // Inner offset where the grass/runoff starts. The pit lane (and its paddock)
+  // reserve room — the runoff starts beyond the whole pit complex on the pit
+  // side. Kerbs do NOT reserve room (grass runs to the road edge, kerb sits
+  // flush on top) so the ground is continuous with no gaps between kerbs.
   const innerOffsets: SideOffset[] = samples.map((_, i) => ({
-    left: pitInfo[i].left,
-    right: pitInfo[i].right,
+    left: Math.max(pitInfo[i].left, pitComplexOuter(i, 'left')),
+    right: Math.max(pitInfo[i].right, pitComplexOuter(i, 'right')),
   }));
 
   // Per-sample, per-side mask: suppress the inside barrier around each corner —
@@ -115,19 +140,18 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   });
   const resolveSide = (d: number, segIndex: number, side: 'left' | 'right'): ResolvedSide => {
     const base = toResolved(stripAt(d, side));
-    // Inside the pit zone on the pit side, the trackside strip must be a clean
-    // CONCRETE apron under lane/boxes/paddock - a gravel strip poking through
-    // the pit boxes looked broken. Wall goes beyond the whole pit complex.
+    // Inside the pit zone on the pit side, keep the barrier BEYOND the whole pit
+    // complex (the runoff already starts there via innerOffsets, so it no longer
+    // overlaps the pit ground). The strip texture is whatever the user set.
     if (project.pit.enabled && side === project.pit.side) {
       const zz = pitZone(project, totalLength);
       const rd = pitRel(d, zz, totalLength);
       if (rd >= zz.start && rd <= zz.end) {
-        const pitDepth = project.pit.width + ((project.pit.paddock ?? true) ? 12 : 2) + 8;
+        const complex = project.pit.width + (((project.pit.paddock ?? true)) ? pitPaddockDepth : 2) + 3;
         return {
-          surface: '1CONCRETE',
-          width: Math.max(base.width, pitDepth),
-          wall: base.wall,
-          wallDist: Math.max(base.wallDist ?? base.width, pitDepth),
+          ...base,
+          width: Math.max(base.width, complex + 4),
+          wallDist: Math.max(base.wallDist ?? base.width, complex),
         };
       }
     }
@@ -175,14 +199,10 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   mergeInto(road, esc.road);
   mergeInto(kerb.hi, esc.kerbHi);
 
-  // Paddock beside the pit lane, deep enough for however many box rows.
-  let paddockDepth = 0;
+  // Paddock beside the pit lane, deep enough for however many box rows
+  // (depth already computed above as pitPaddockDepth so the runoff can reserve it).
+  const paddockDepth = pitPaddockDepth;
   if (project.pit.enabled && (project.pit.paddock ?? true)) {
-    const z = pitZone(project, totalLength);
-    const span = Math.max(1, z.boxB - 4 - (z.boxA + 4));
-    const perRow = Math.max(1, Math.floor(span / 8));
-    const rows = Math.ceil(project.grid.pits / perRow);
-    paddockDepth = 8 + rows * 7;
     mergeInto(pit, buildPaddock(samples, project, width, paddockDepth));
   }
   // Pit structures: wall between track and pit lane, garage building along the

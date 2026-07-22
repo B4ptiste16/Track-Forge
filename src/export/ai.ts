@@ -1,5 +1,12 @@
 import type { BuiltTrack } from '../geometry';
+import type { TrackProject } from '../types';
 import { perpLeft } from '../geometry/frames';
+
+// AC applies its pit speed limiter (and its AI uses the pit lane) when the
+// track provides ai/pit_lane.ai — a spline down the pit lane. Generating it
+// here means the user never has to set the pit lane up in KsEditor. The spline
+// carries a low, constant speed (the pit limit) so the lane reads as a pit.
+const PIT_LIMIT_KMH = 60; // pit-lane target speed baked into the spline
 
 // ---------------------------------------------------------------------------
 // AC AI spline writer (`ai/fast_lane.ai`, version 7) — the file AC's built-in
@@ -134,6 +141,80 @@ export function genFastLaneAi(built: BuiltTrack, width: number, sfDist = 0): Uin
     f32(dirx); f32(0); f32(-diry); // forward, AC frame
     f32(0); // tag
     f32(0); // grade
+  }
+  return new Uint8Array(buf);
+}
+
+// Pit-lane spline (ai/pit_lane.ai). Runs down the pit lane (offset to the pit
+// side, between entry and exit) at a constant low speed, so AC recognises the
+// pit lane and applies its speed limiter without any KsEditor setup.
+export function genPitLaneAi(built: BuiltTrack, project: TrackProject): Uint8Array {
+  if (!project.pit.enabled) return new Uint8Array(0);
+  const samples = built.centerline;
+  const total = built.totalLength;
+  if (samples.length < 8 || total < 10) return new Uint8Array(0);
+
+  const width = project.road.width;
+  const e0 = Math.max(0, Math.min(total, project.pit.entry));
+  const e1 = Math.max(0, Math.min(total, project.pit.exit));
+  const wraps = e1 < e0;
+  // pit-lane centre offset from the road centreline, on the pit side
+  const sideSign = project.pit.side === 'left' ? 1 : -1;
+  const laneOff = (width / 2 + project.pit.width / 2) * sideSign;
+
+  // collect the pit-zone samples in order (wrap-aware), a little before entry
+  // and after exit so the lane blends onto the track.
+  const inZone = (d: number) => (wraps ? d >= e0 - 12 || d <= e1 + 12 : d >= e0 - 12 && d <= e1 + 12);
+  const seq: typeof samples = [];
+  const startK = samples.findIndex((s) => (wraps ? s.dist >= e0 - 12 : inZone(s.dist)));
+  if (wraps) {
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[(startK + i) % samples.length];
+      if (inZone(s.dist)) seq.push(s);
+    }
+  } else {
+    for (const s of samples) if (inZone(s.dist)) seq.push(s);
+  }
+  const n = seq.length;
+  if (n < 8) return new Uint8Array(0);
+
+  const px = new Array<number>(n), py = new Array<number>(n), pz = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    const [lx, ly] = perpLeft(seq[i].heading);
+    px[i] = seq[i].pos[0] + lx * laneOff;
+    py[i] = seq[i].pos[1] + ly * laneOff;
+    pz[i] = seq[i].pos[2];
+  }
+  const len = new Array<number>(n).fill(0);
+  for (let i = 1; i < n; i++) len[i] = len[i - 1] + Math.hypot(px[i] - px[i - 1], py[i] - py[i - 1], pz[i] - pz[i - 1]);
+
+  const vpit = PIT_LIMIT_KMH / 3.6;
+  const DETAIL = 20, EXTRA = 72;
+  const buf = new ArrayBuffer(16 + n * DETAIL + 4 + n * EXTRA);
+  const dv = new DataView(buf);
+  let o = 0;
+  const i32 = (x: number) => { dv.setInt32(o, x, true); o += 4; };
+  const f32 = (x: number) => { dv.setFloat32(o, x, true); o += 4; };
+  i32(7); i32(n); i32(0); i32(0);
+  for (let i = 0; i < n; i++) {
+    f32(px[i]); f32(pz[i]); f32(-py[i]);
+    f32(len[i]);
+    i32(i);
+  }
+  i32(n);
+  const halfW = project.pit.width / 2;
+  for (let i = 0; i < n; i++) {
+    const dirx = Math.cos(seq[i].heading), diry = Math.sin(seq[i].heading);
+    f32(vpit); // constant pit speed
+    f32(0.3); f32(0); // gentle gas, no brake
+    f32(0);
+    f32(10000); // straight-ish
+    f32(halfW); f32(halfW);
+    f32(0); f32(0);
+    f32(0); f32(1); f32(0);
+    f32(len[i]);
+    f32(dirx); f32(0); f32(-diry);
+    f32(0); f32(0);
   }
   return new Uint8Array(buf);
 }

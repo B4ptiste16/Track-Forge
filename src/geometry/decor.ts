@@ -243,5 +243,63 @@ export function buildDecor(
     }
   }
 
-  return [pole, flag, stand, frame, arch].filter((m) => m.faces.length > 0);
+  // --- Brake marker boards: 100/50/25 m before every corner, outside edge ---
+  const marker = mesh('DECOR_MARKER');
+  const POST: Vec3 = [0.55, 0.57, 0.6];
+  const nearestSample = (d: number): number => {
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const dd = Math.abs(samples[i].dist - d);
+      if (dd < bd) { bd = dd; bi = i; }
+    }
+    return bi;
+  };
+  for (const span of spans) {
+    if (span.kind !== 'corner') continue;
+    const outside: 'left' | 'right' = span.dir === 'left' ? 'right' : 'left';
+    const sign = outside === 'left' ? 1 : -1;
+    for (const back of [100, 50, 25]) {
+      const d = span.startDist - back;
+      if (d < 3) continue;
+      const i = nearestSample(d);
+      const s = samples[i];
+      const off = width / 2 + Math.min(6, Math.max(1.5, resolved[i][outside].width * 0.4)) + 0.6;
+      const b = offsetPoint(s, off * sign);
+      // post + a panel facing the oncoming driver (normal = -travel)
+      paintBox(marker, b[0], b[1], b[2], b[2] + 1.1, 0.06, POST);
+      const [px2, py2] = perpLeft(s.heading);
+      const hw = 0.55;
+      const a1: Vec3 = [b[0] - px2 * hw, b[1] - py2 * hw, 0];
+      const a2: Vec3 = [b[0] + px2 * hw, b[1] + py2 * hw, 0];
+      const fwd: Vec3 = [-Math.cos(s.heading), -Math.sin(s.heading), 0];
+      // texture v-band encodes the distance (100=top third, 50=mid, 25=bottom)
+      const band = back === 100 ? 0 : back === 50 ? 1 : 2;
+      paintQuad(marker, a1, a2, b[2] + 1.1, b[2] + 1.9, [1, 1, 1], fwd, [band / 3, (band + 1) / 3]);
+      paintQuad(marker, a2, a1, b[2] + 1.1, b[2] + 1.9, [1, 1, 1], [-fwd[0], -fwd[1], 0], [band / 3, (band + 1) / 3]);
+    }
+  }
+
+  // --- Start/finish gantry with a start-light bar over the S/F line ---------
+  const gantry = mesh('DECOR_GANTRY');
+  const lights = mesh('DECOR_LIGHTS');
+  {
+    const sf = nearestSample(project.startFinishDist);
+    const s = samples[sf];
+    const pl = offsetPoint(s, width / 2 + 1.5);
+    const pr = offsetPoint(s, -(width / 2 + 1.5));
+    const H = 6.5, BEAM = 0.5;
+    const STEEL: Vec3 = [0.72, 0.74, 0.78];
+    paintBox(gantry, pl[0], pl[1], pl[2], pl[2] + H, 0.28, STEEL);
+    paintBox(gantry, pr[0], pr[1], pr[2], pr[2] + H, 0.28, STEEL);
+    const zTop = Math.max(pl[2], pr[2]) + H;
+    const fwd: Vec3 = [Math.cos(s.heading), Math.sin(s.heading), 0];
+    // overhead beam across the track
+    paintQuad(gantry, [pl[0], pl[1], 0], [pr[0], pr[1], 0], zTop - BEAM, zTop, STEEL, fwd, [0, 1]);
+    paintQuad(gantry, [pr[0], pr[1], 0], [pl[0], pl[1], 0], zTop - BEAM, zTop, STEEL, [-fwd[0], -fwd[1], 0], [0, 1]);
+    // light panel hanging under the beam, facing the grid (normal = -travel)
+    const lz1 = zTop - BEAM, lz0 = lz1 - 0.9;
+    paintQuad(lights, [pl[0], pl[1], 0], [pr[0], pr[1], 0], lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
+  }
+
+  return [pole, flag, stand, frame, arch, marker, gantry, lights].filter((m) => m.faces.length > 0);
 }

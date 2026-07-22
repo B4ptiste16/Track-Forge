@@ -4,6 +4,10 @@ import { CLOSE_GAP_TOL, CLOSE_HEADING_TOL } from './types';
 
 const STRAIGHT_SPACING = 3; // m between samples on straights
 const CORNER_STEP_DEG = 2; // degrees between samples on corners
+// ALSO cap the arc-length between corner samples: a fixed angular step alone
+// leaves big-radius (long, gentle) curves sampled metres apart, so their kerbs
+// and edges facet visibly ("round then pointy") while tight corners stay dense.
+const CORNER_MAX_ARC = 2.0; // m between samples on corners, whatever the radius
 
 export interface CenterlineResult {
   samples: CenterlineSample[];
@@ -60,7 +64,11 @@ export function buildCenterline(segments: Segment[]): CenterlineResult {
 
       const startAngle = Math.atan2(py - cy, px - cx);
       const arcLen = radius * sweep;
-      const steps = Math.max(1, Math.ceil((seg.angle || 0) / CORNER_STEP_DEG));
+      const steps = Math.max(
+        1,
+        Math.ceil((seg.angle || 0) / CORNER_STEP_DEG),
+        Math.ceil(arcLen / CORNER_MAX_ARC), // dense samples on big-radius curves too
+      );
       for (let k = 1; k <= steps; k++) {
         const frac = k / steps;
         const phi = startAngle + sign * sweep * frac;
