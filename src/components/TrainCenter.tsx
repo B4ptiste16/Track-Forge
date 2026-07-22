@@ -148,7 +148,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
               className={`train-track ${selected === t.id ? 'sel' : ''}`}
               onClick={() => pickTrack(t.id)}
               disabled={!t.hasAi}
-              title={t.hasAi ? t.id : `${t.id} — no ai/fast_lane.ai, the bot can't train here`}
+              title={t.hasAi ? t.id : `${t.id} — no AI line found. Generate one in Content Manager (track → AI → generate) so the bot can see the layout, then it's trainable.`}
             >
               <span className="train-track-name">{t.name}</span>
               {!t.hasAi && <span className="train-track-noai">no AI line</span>}

@@ -273,15 +273,34 @@ ipcMain.handle('rl:listTracks', () => {
   } catch (err) {
     return { ok: false, error: `AC tracks folder not found:\n${root}\n(${err.message})`, tracks: [] };
   }
+  // An AI line may sit in the track folder OR in a LAYOUT subfolder (multi-
+  // layout Kunos tracks + most mods) — check both so those tracks aren't
+  // wrongly greyed out. Any AC track (Kunos or mod) is trainable, not just
+  // ones built in this app.
+  const hasAiLine = (dir) => {
+    if (fs.existsSync(path.join(dir, 'ai', 'fast_lane.ai'))) return true;
+    try {
+      for (const sub of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (sub.isDirectory() && fs.existsSync(path.join(dir, sub.name, 'ai', 'fast_lane.ai'))) return true;
+      }
+    } catch { /* unreadable */ }
+    return false;
+  };
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     const dir = path.join(root, e.name);
-    const hasAi = fs.existsSync(path.join(dir, 'ai', 'fast_lane.ai'));
+    const hasAi = hasAiLine(dir);
     let name = e.name;
-    try {
-      const ui = JSON.parse(fs.readFileSync(path.join(dir, 'ui', 'ui_track.json'), 'utf8'));
-      if (ui.name) name = ui.name;
-    } catch { /* keep folder name */ }
+    for (const uiPath of [path.join(dir, 'ui', 'ui_track.json'), path.join(dir, 'ui')]) {
+      try {
+        // multi-layout tracks keep ui_track.json under ui/<layout>/
+        const f = uiPath.endsWith('.json') ? uiPath : (() => {
+          const layout = fs.readdirSync(uiPath, { withFileTypes: true }).find((x) => x.isDirectory());
+          return layout ? path.join(uiPath, layout.name, 'ui_track.json') : null;
+        })();
+        if (f) { const ui = JSON.parse(fs.readFileSync(f, 'utf8')); if (ui.name) { name = ui.name; break; } }
+      } catch { /* keep folder name */ }
+    }
     out.push({ id: e.name, name, hasAi });
   }
   out.sort((a, b) => Number(b.hasAi) - Number(a.hasAi) || a.name.localeCompare(b.name));
