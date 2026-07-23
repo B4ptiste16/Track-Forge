@@ -75,6 +75,19 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
     if (label) await start('bank_model.py', [label, selected]);
   };
 
+  // Race training uses the SAME trainer as normal — the bot now learns racing
+  // automatically from any AI cars in the session (and from sim rivals in its
+  // pretrained base). This just reminds you to have opponents on track.
+  const raceTrain = async () => {
+    const ok = await desktop!.confirm(
+      'Race training',
+      'Set up an AC RACE with AI opponents first (in Content Manager: Single → Race, add a few AI cars), and make sure the AC-RL overlay app is enabled — it feeds the bot the rival positions. Then start. The bot learns to race the cars that are actually on track.',
+      ['Start race training', 'Cancel'],
+    );
+    if (ok !== 0) return;
+    if (!liveBusy) await start('train.py');
+  };
+
   // Close out THIS track's driver under a name, then start it fresh — from
   // the shared sim-pretrained base (fast), from a freshly retrained base
   // (slower), or completely BLANK with no pre-training at all. Recorded
@@ -166,6 +179,9 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                 Launch AC only
               </button>
               <button onClick={() => start('train.py')} disabled={liveBusy}>Train (AC already open)</button>
+              <button onClick={raceTrain} disabled={liveBusy} title="Train against AI cars — the bot learns wheel-to-wheel racing from the rivals in the session.">
+                🏁 Race training
+              </button>
               <button onClick={() => start('drive.py')} disabled={liveBusy}>Watch it drive</button>
               <button
                 onClick={() => start('train_sim.py', [1_000_000, selected])}
