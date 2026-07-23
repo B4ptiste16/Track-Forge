@@ -541,7 +541,7 @@ function iniSetKey(block, key, value) {
 // Turn a (typically solo/practice) race.ini into an N-car RACE on `track`:
 // bump CARS, make SESSION_0 a race, and clone the player's car into AI
 // opponents. Vanilla AC assigns AI to every car except CAR_0 (the player).
-function buildRaceIni(ini, { track, opponents, aiLevel }) {
+function buildRaceIni(ini, { track, opponents, aiLevel, laps }) {
   let blocks = parseIniBlocks(ini);
   let model = 'tatuusfa1';
   const race = blocks.find((b) => b.header === 'RACE');
@@ -552,16 +552,21 @@ function buildRaceIni(ini, { track, opponents, aiLevel }) {
     iniSetKey(race, 'CONFIG_TRACK', '');
     iniSetKey(race, 'CARS', String(opponents + 1));
     iniSetKey(race, 'AI_LEVEL', String(aiLevel));
+    iniSetKey(race, 'RACE_LAPS', String(laps));
   }
   const sess = blocks.find((b) => b.header === 'SESSION_0');
   if (sess) {
     iniSetKey(sess, 'NAME', 'Race');
     iniSetKey(sess, 'TYPE', '3');            // 1=practice 2=qualify 3=race
-    iniSetKey(sess, 'DURATION_MINUTES', '0'); // lap-limited (RACE_LAPS)
-    // Cars must grid up on the track's START spawn set. HOTLAP_START (or a
-    // missing SPAWN_SET) piles every car at the origin, where they drop from
-    // the sky — CM uses START for real sessions.
+    iniSetKey(sess, 'DURATION_MINUTES', '0'); // AC races are lap-limited, not timed
+    // The SESSION needs its OWN lap count — without LAPS the race is 0 laps and
+    // ends instantly (RACE_LAPS in [RACE] alone is not enough).
+    iniSetKey(sess, 'LAPS', String(laps));
+    // Cars must grid up on the track's START spawn set. A missing SPAWN_SET
+    // piles every car at the origin, where they drop from the sky.
     iniSetKey(sess, 'SPAWN_SET', 'START');
+    // Start the player mid-pack so there are cars both ahead and behind to race.
+    iniSetKey(sess, 'STARTING_POSITION', String(Math.max(1, Math.ceil((opponents + 1) / 2))));
   }
   // Rebuild the opponent list from scratch (drop any stale CAR_1.. blocks).
   blocks = blocks.filter((b) => !/^CAR_[1-9]\d*$/.test(b.header));
@@ -584,7 +589,7 @@ function buildRaceIni(ini, { track, opponents, aiLevel }) {
 // turn it into an N-car race with AI so the bot has rivals to learn from;
 // otherwise we just swap the track (practice). Requires AC to have been
 // launched normally at least once. The original race.ini is backed up once.
-ipcMain.handle('rl:launchAC', (_e, { track, race, opponents = 7, aiLevel = 95 } = {}) => {
+ipcMain.handle('rl:launchAC', (_e, { track, race, opponents = 7, aiLevel = 95, laps = 10 } = {}) => {
   if ([...rlProcs.values()].some((p) => RL_LIVE_SCRIPTS.has(p.script))) {
     return { ok: false, error: 'A live script is using AC right now — stop it before launching AC on another track.' };
   }

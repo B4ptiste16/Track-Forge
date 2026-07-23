@@ -35,7 +35,7 @@ export interface DesktopApi {
   rlLogHistory(): Promise<string[]>;
   rlLaunchAC(
     track: string,
-    opts?: { race?: boolean; opponents?: number; aiLevel?: number },
+    opts?: { race?: boolean; opponents?: number; aiLevel?: number; laps?: number },
   ): Promise<{ ok: boolean; error?: string; cars?: number }>;
   rlRestoreSaved(track: string, folder: string): Promise<{ ok: boolean; error?: string }>;
   rlSuggestSetup(track: string): Promise<{ ok: boolean; car?: string; tips: string[]; brakeBias?: number | null; steps?: number; error?: string }>;

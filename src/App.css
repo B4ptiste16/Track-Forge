@@ -371,7 +371,9 @@
 }
 .train-actions { display: flex; flex-direction: column; gap: 10px; }
 .train-big { font-size: 16px; padding: 13px 22px; }
-.train-actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.train-actions-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.train-laps { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.train-laps input { width: 56px; padding: 4px 6px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
 .train-cards { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
 .train-card {
   background: var(--panel);

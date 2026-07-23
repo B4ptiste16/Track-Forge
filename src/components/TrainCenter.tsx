@@ -18,6 +18,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
   const [live, setLive] = useState<RlLive>({ live: null, model: null, banked: [] });
   const [log, setLog] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [raceLaps, setRaceLaps] = useState(10);
   const logRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -82,15 +83,16 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
   // there are opponents in the session. Your original race.ini is backed up.
   const raceTrain = async () => {
     if (!selected) { setNote('Pick a track first.'); return; }
+    const laps = Math.max(1, Math.min(200, Math.round(raceLaps) || 10));
     const ok = await desktop!.confirm(
       'Race training',
-      `This launches Assetto Corsa into an 8-car race (you + 7 AI) on "${selName}" and starts the trainer, so the bot learns to race wheel-to-wheel. Make sure the AC-RL overlay app is enabled in-game (it feeds the bot the rival positions). Your original race.ini is backed up. Launch the race and start training?`,
+      `This launches Assetto Corsa into a ${laps}-lap, 8-car race (you + 7 AI) on "${selName}" and starts the trainer, so the bot learns to race wheel-to-wheel. Make sure the AC-RL overlay app is enabled in-game (it feeds the bot the rival positions). Your original race.ini is backed up. Launch the race and start training?`,
       ['Launch race + train', 'Cancel'],
     );
     if (ok !== 0) return;
-    const ac = await desktop!.rlLaunchAC(selected, { race: true });
+    const ac = await desktop!.rlLaunchAC(selected, { race: true, laps });
     if (!ac.ok) { await desktop!.showMessage('error', ac.error || 'Could not launch AC.'); return; }
-    setNote(`AC launching into a ${ac.cars ?? 8}-car race — the trainer hooks on when the session is live. ALT-TAB into AC.`);
+    setNote(`AC launching into a ${laps}-lap, ${ac.cars ?? 8}-car race — the trainer hooks on when the session is live. ALT-TAB into AC.`);
     if (!liveBusy) await start('train.py');
   };
 
@@ -198,9 +200,20 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                 Launch AC only
               </button>
               <button onClick={() => start('train.py')} disabled={liveBusy}>Train (AC already open)</button>
-              <button onClick={raceTrain} disabled={liveBusy} title="Train against AI cars — the bot learns wheel-to-wheel racing from the rivals in the session.">
+              <button onClick={raceTrain} disabled={liveBusy || !selected} title="Launch an AI race and train — the bot learns wheel-to-wheel racing from the rivals in the session.">
                 🏁 Race training
               </button>
+              <label className="train-laps" title="How many laps the race runs before it ends.">
+                laps
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={raceLaps}
+                  onChange={(e) => setRaceLaps(Number(e.target.value))}
+                  disabled={liveBusy}
+                />
+              </label>
               <button onClick={() => start('drive.py')} disabled={liveBusy}>Watch it drive</button>
               <button
                 onClick={() => start('train_sim.py', [1_000_000, selected])}
