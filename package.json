@@ -19,6 +19,7 @@
     "appId": "com.actrackforge.app",
     "productName": "AC BAPTOU",
     "icon": "build/icon.png",
+    "artifactName": "AC-BAPTOU-Setup-${version}.${ext}",
     "files": [
       "dist/**/*",
       "electron/**/*"
