@@ -207,7 +207,7 @@ const RL_DEFAULT_AC = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assett
 const RL_LOCAL = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'ac-rl');
 const RL_STOP_FLAG = path.join(RL_LOCAL, 'stop.flag');
 // Only these scripts may be launched from the app (never arbitrary commands).
-const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py', 'save_and_reset.py', 'suggest_setup.py']);
+const RL_SCRIPTS = new Set(['train.py', 'train_sim.py', 'drive.py', 'bank_model.py', 'pretrain.py', 'record_obs.py', 'save_and_reset.py', 'suggest_setup.py', 'bot_to_ai.py']);
 
 function rlDir() {
   return loadSettings().acRlDir || RL_DEFAULT_DIR;
@@ -225,7 +225,7 @@ function rlPython() {
 // tracks train at the same time: live AC on one, sim focus on the other.
 // Per-track model folders (ac-rl models/tracks/<track>/) make this safe —
 // they never write to the same files.
-const RL_LIVE_SCRIPTS = new Set(['train.py', 'drive.py']);
+const RL_LIVE_SCRIPTS = new Set(['train.py', 'drive.py', 'bot_to_ai.py']);
 const rlProcs = new Map(); // pid -> { child, script, args, startedAt }
 const rlLogLines = []; // rolling buffer so the page can show history on mount
 function rlLog(line, tag = '') {

@@ -88,6 +88,19 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
     if (!liveBusy) await start('train.py');
   };
 
+  // Bake the trained bot's own driven lap into the track's ai/fast_lane.ai, so
+  // AC's built-in AI drives the bot's LINE + PACE. You can then spawn it as an
+  // opponent and race against it while you drive — no multiplayer needed.
+  const bakeAi = async () => {
+    const ok = await desktop!.confirm(
+      'Bake bot → AC AI line',
+      'With AC open in a Practice session on this track (car on track, AC-RL overlay enabled), the bot will drive one clean lap and its line + speeds get written to the track’s AI line (ai/fast_lane.ai — the old one is backed up). Afterwards, AC’s AI opponents drive like your bot, so you can race against it. Ready?',
+      ['Start baking', 'Cancel'],
+    );
+    if (ok !== 0) return;
+    if (!liveBusy) await start('bot_to_ai.py');
+  };
+
   // Close out THIS track's driver under a name, then start it fresh — from
   // the shared sim-pretrained base (fast), from a freshly retrained base
   // (slower), or completely BLANK with no pre-training at all. Recorded
@@ -218,6 +231,14 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                 title="Archive this track's driver under a name, then start it fresh"
               >
                 💾 Save & start new training…
+              </button>
+              <button
+                className="small train-reset-btn"
+                onClick={bakeAi}
+                disabled={liveBusy || !live.model}
+                title="Have the bot drive a lap and write it as the track's AC AI line, so AC's AI drives like your bot and you can race it."
+              >
+                🏎️ Bake bot → AC AI line
               </button>
               {(live.saved?.length ?? 0) > 0 && (
                 <div className="train-saved">
