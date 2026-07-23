@@ -604,7 +604,7 @@ ipcMain.handle('rl:launchAC', (_e, { track, race, opponents = 7, aiLevel = 95, l
     const bak = iniPath + '.baptou.bak'; // preserve the user's original once
     if (!fs.existsSync(bak)) fs.writeFileSync(bak, ini);
     if (race) {
-      ini = buildRaceIni(ini, { track, opponents, aiLevel });
+      ini = buildRaceIni(ini, { track, opponents, aiLevel, laps });
     } else {
       const swap = (key, value) => {
         const re = new RegExp(`^${key}=.*$`, 'm');
