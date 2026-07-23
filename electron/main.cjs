@@ -516,11 +516,73 @@ ipcMain.handle('rl:restoreSaved', (_e, { track, folder }) => {
   }
 });
 
-// Launch AC in a practice session on the chosen track. Vanilla AC has no
-// track CLI — it reads Documents\Assetto Corsa\cfg\race.ini at startup. We
-// take the user's last (known-good) race.ini, swap only the track, and start
-// acs.exe. Requires AC to have been launched normally at least once.
-ipcMain.handle('rl:launchAC', (_e, { track }) => {
+// Parse an INI into ordered blocks so we can edit specific sections (AC's
+// race.ini reuses key names like TYPE/MODEL across sections, so a global
+// regex isn't safe). blocks[0] is the pre-header preamble (header '').
+function parseIniBlocks(ini) {
+  const blocks = [];
+  let cur = { header: '', lines: [] };
+  for (const raw of ini.split(/\r?\n/)) {
+    const m = raw.match(/^\[(.+)\]\s*$/);
+    if (m) { blocks.push(cur); cur = { header: m[1], lines: [raw] }; }
+    else cur.lines.push(raw);
+  }
+  blocks.push(cur);
+  return blocks;
+}
+function iniSetKey(block, key, value) {
+  const re = new RegExp(`^${key}=.*$`);
+  for (let i = 0; i < block.lines.length; i++) {
+    if (re.test(block.lines[i])) { block.lines[i] = `${key}=${value}`; return; }
+  }
+  block.lines.splice(1, 0, `${key}=${value}`); // insert right after the [HEADER] line
+}
+
+// Turn a (typically solo/practice) race.ini into an N-car RACE on `track`:
+// bump CARS, make SESSION_0 a race, and clone the player's car into AI
+// opponents. Vanilla AC assigns AI to every car except CAR_0 (the player).
+function buildRaceIni(ini, { track, opponents, aiLevel }) {
+  let blocks = parseIniBlocks(ini);
+  let model = 'tatuusfa1';
+  const race = blocks.find((b) => b.header === 'RACE');
+  if (race) {
+    const ml = race.lines.find((l) => /^MODEL=/.test(l));
+    if (ml) { const v = ml.slice(6).trim(); if (v && v !== '-') model = v; }
+    iniSetKey(race, 'TRACK', track);
+    iniSetKey(race, 'CONFIG_TRACK', '');
+    iniSetKey(race, 'CARS', String(opponents + 1));
+    iniSetKey(race, 'AI_LEVEL', String(aiLevel));
+  }
+  const sess = blocks.find((b) => b.header === 'SESSION_0');
+  if (sess) {
+    iniSetKey(sess, 'NAME', 'Race');
+    iniSetKey(sess, 'TYPE', '3');            // 1=practice 2=qualify 3=race
+    iniSetKey(sess, 'DURATION_MINUTES', '0'); // lap-limited (RACE_LAPS)
+    // HOTLAP_START forces a lone hotlap spawn — drop it so the field grids up.
+    sess.lines = sess.lines.filter((l) => !/^SPAWN_SET=/.test(l));
+  }
+  // Rebuild the opponent list from scratch (drop any stale CAR_1.. blocks).
+  blocks = blocks.filter((b) => !/^CAR_[1-9]\d*$/.test(b.header));
+  const opp = [];
+  for (let i = 1; i <= opponents; i++) {
+    opp.push({ header: `CAR_${i}`, lines: [
+      `[CAR_${i}]`, 'SETUP=', 'SKIN=scheme_0', `MODEL=${model}`, 'MODEL_CONFIG=',
+      'BALLAST=0', 'RESTRICTOR=0', `DRIVER_NAME=AI ${i}`,
+      `AI_LEVEL=${Math.max(85, aiLevel - (i % 4))}`,
+    ] });
+  }
+  const at = blocks.findIndex((b) => b.header === 'CAR_0');
+  if (at >= 0) blocks.splice(at + 1, 0, ...opp); else blocks.push(...opp);
+  return blocks.map((b) => b.lines.join('\n')).join('\n');
+}
+
+// Launch AC on the chosen track. Vanilla AC has no track CLI — it reads
+// Documents\Assetto Corsa\cfg\race.ini at startup. We take the user's last
+// (known-good) race.ini, edit it, and start acs.exe. With { race:true } we
+// turn it into an N-car race with AI so the bot has rivals to learn from;
+// otherwise we just swap the track (practice). Requires AC to have been
+// launched normally at least once. The original race.ini is backed up once.
+ipcMain.handle('rl:launchAC', (_e, { track, race, opponents = 7, aiLevel = 95 } = {}) => {
   if ([...rlProcs.values()].some((p) => RL_LIVE_SCRIPTS.has(p.script))) {
     return { ok: false, error: 'A live script is using AC right now — stop it before launching AC on another track.' };
   }
@@ -532,15 +594,21 @@ ipcMain.handle('rl:launchAC', (_e, { track }) => {
   if (!fs.existsSync(acsPath)) return { ok: false, error: `acs.exe not found in ${rlAcRoot()}` };
   try {
     let ini = fs.readFileSync(iniPath, 'utf8');
-    const swap = (key, value) => {
-      const re = new RegExp(`^${key}=.*$`, 'm');
-      ini = re.test(ini) ? ini.replace(re, `${key}=${value}`) : ini;
-    };
-    swap('TRACK', track);
-    swap('CONFIG_TRACK', '');
+    const bak = iniPath + '.baptou.bak'; // preserve the user's original once
+    if (!fs.existsSync(bak)) fs.writeFileSync(bak, ini);
+    if (race) {
+      ini = buildRaceIni(ini, { track, opponents, aiLevel });
+    } else {
+      const swap = (key, value) => {
+        const re = new RegExp(`^${key}=.*$`, 'm');
+        ini = re.test(ini) ? ini.replace(re, `${key}=${value}`) : ini;
+      };
+      swap('TRACK', track);
+      swap('CONFIG_TRACK', '');
+    }
     fs.writeFileSync(iniPath, ini);
     spawn(acsPath, [], { cwd: rlAcRoot(), detached: true, stdio: 'ignore' }).unref();
-    return { ok: true };
+    return { ok: true, cars: race ? opponents + 1 : 1 };
   } catch (err) {
     return { ok: false, error: String(err) };
   }

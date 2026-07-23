@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('desktop', {
   rlStatus: () => ipcRenderer.invoke('rl:status'),
   rlLive: (track) => ipcRenderer.invoke('rl:live', { track }),
   rlLogHistory: () => ipcRenderer.invoke('rl:logHistory'),
-  rlLaunchAC: (track) => ipcRenderer.invoke('rl:launchAC', { track }),
+  rlLaunchAC: (track, opts) => ipcRenderer.invoke('rl:launchAC', { track, ...(opts || {}) }),
   rlRestoreSaved: (track, folder) => ipcRenderer.invoke('rl:restoreSaved', { track, folder }),
   rlSuggestSetup: (track) => ipcRenderer.invoke('rl:suggestSetup', { track }),
   // These return an unsubscribe fn so a page can clean up on unmount (the

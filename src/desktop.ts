@@ -33,7 +33,10 @@ export interface DesktopApi {
   rlStatus(): Promise<RlStatus>;
   rlLive(track?: string): Promise<RlLive>;
   rlLogHistory(): Promise<string[]>;
-  rlLaunchAC(track: string): Promise<{ ok: boolean; error?: string }>;
+  rlLaunchAC(
+    track: string,
+    opts?: { race?: boolean; opponents?: number; aiLevel?: number },
+  ): Promise<{ ok: boolean; error?: string; cars?: number }>;
   rlRestoreSaved(track: string, folder: string): Promise<{ ok: boolean; error?: string }>;
   rlSuggestSetup(track: string): Promise<{ ok: boolean; car?: string; tips: string[]; brakeBias?: number | null; steps?: number; error?: string }>;
   onRlLog(cb: (line: string) => void): () => void;

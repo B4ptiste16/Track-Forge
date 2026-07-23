@@ -75,16 +75,22 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
     if (label) await start('bank_model.py', [label, selected]);
   };
 
-  // Race training uses the SAME trainer as normal — the bot now learns racing
-  // automatically from any AI cars in the session (and from sim rivals in its
-  // pretrained base). This just reminds you to have opponents on track.
+  // Race training LAUNCHES AC straight into an 8-car race (you + AI) on the
+  // chosen track, then starts the trainer — the bot learns wheel-to-wheel
+  // racing from the rivals actually on track (it reads their positions from
+  // the AC-RL overlay app). Uses the SAME trainer as normal; the difference is
+  // there are opponents in the session. Your original race.ini is backed up.
   const raceTrain = async () => {
+    if (!selected) { setNote('Pick a track first.'); return; }
     const ok = await desktop!.confirm(
       'Race training',
-      'Set up an AC RACE with AI opponents first (in Content Manager: Single → Race, add a few AI cars), and make sure the AC-RL overlay app is enabled — it feeds the bot the rival positions. Then start. The bot learns to race the cars that are actually on track.',
-      ['Start race training', 'Cancel'],
+      `This launches Assetto Corsa into an 8-car race (you + 7 AI) on "${selName}" and starts the trainer, so the bot learns to race wheel-to-wheel. Make sure the AC-RL overlay app is enabled in-game (it feeds the bot the rival positions). Your original race.ini is backed up. Launch the race and start training?`,
+      ['Launch race + train', 'Cancel'],
     );
     if (ok !== 0) return;
+    const ac = await desktop!.rlLaunchAC(selected, { race: true });
+    if (!ac.ok) { await desktop!.showMessage('error', ac.error || 'Could not launch AC.'); return; }
+    setNote(`AC launching into a ${ac.cars ?? 8}-car race — the trainer hooks on when the session is live. ALT-TAB into AC.`);
     if (!liveBusy) await start('train.py');
   };
 
