@@ -558,8 +558,10 @@ function buildRaceIni(ini, { track, opponents, aiLevel }) {
     iniSetKey(sess, 'NAME', 'Race');
     iniSetKey(sess, 'TYPE', '3');            // 1=practice 2=qualify 3=race
     iniSetKey(sess, 'DURATION_MINUTES', '0'); // lap-limited (RACE_LAPS)
-    // HOTLAP_START forces a lone hotlap spawn — drop it so the field grids up.
-    sess.lines = sess.lines.filter((l) => !/^SPAWN_SET=/.test(l));
+    // Cars must grid up on the track's START spawn set. HOTLAP_START (or a
+    // missing SPAWN_SET) piles every car at the origin, where they drop from
+    // the sky — CM uses START for real sessions.
+    iniSetKey(sess, 'SPAWN_SET', 'START');
   }
   // Rebuild the opponent list from scratch (drop any stale CAR_1.. blocks).
   blocks = blocks.filter((b) => !/^CAR_[1-9]\d*$/.test(b.header));
