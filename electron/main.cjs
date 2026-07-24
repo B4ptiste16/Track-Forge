@@ -418,20 +418,38 @@ ipcMain.handle('rl:live', async (_e, { track } = {}) => {
     try {
       out.banked = fs.readdirSync(path.join(botDir, 'banked')).filter((f) => f.endsWith('.zip'));
     } catch { /* none banked */ }
-    // Saved (archived) bots for THIS track: archive/saved_<track>_<label>_<ts>/
+    // Saved (archived) bots for THIS track: archive/saved_<track>_<label>_<ts>/.
+    // Each entry also carries the steps it was trained to (read from the zip,
+    // cached by mtime) so you can tell a well-trained save from a fresh one.
     try {
       const arch = path.join(rlDir(), 'archive');
       const prefix = `saved_${track}_`;
-      out.saved = fs.readdirSync(arch, { withFileTypes: true })
+      const JSZip = require('jszip');
+      out.saved = [];
+      const dirs = fs.readdirSync(arch, { withFileTypes: true })
         .filter((e) => e.isDirectory() && e.name.startsWith(prefix)
-          && fs.existsSync(path.join(arch, e.name, 'ac_sac.zip')))
-        .map((e) => {
-          const m = e.name.match(/^saved_.*_(\d{8})_(\d{6})$/);
-          const label = e.name.slice(prefix.length).replace(/_\d{8}_\d{6}$/, '');
-          const date = m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)} ${m[2].slice(0, 2)}:${m[2].slice(2, 4)}` : '';
-          return { folder: e.name, label, date };
-        })
-        .sort((a, b) => b.folder.localeCompare(a.folder));
+          && fs.existsSync(path.join(arch, e.name, 'ac_sac.zip')));
+      for (const e of dirs) {
+        const m = e.name.match(/^saved_.*_(\d{8})_(\d{6})$/);
+        const label = e.name.slice(prefix.length).replace(/_\d{8}_\d{6}$/, '');
+        const date = m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)} ${m[2].slice(0, 2)}:${m[2].slice(2, 4)}` : '';
+        let steps = null;
+        try {
+          const zp = path.join(arch, e.name, 'ac_sac.zip');
+          const st = fs.statSync(zp);
+          const ck = `saved:${e.name}`;
+          let c = rlModelCache.get(ck);
+          if (!c || c.mtimeMs !== st.mtimeMs) {
+            const zip = await JSZip.loadAsync(fs.readFileSync(zp));
+            const data = JSON.parse(await zip.file('data').async('string'));
+            c = { mtimeMs: st.mtimeMs, info: { steps: data.num_timesteps || 0 } };
+            rlModelCache.set(ck, c);
+          }
+          steps = c.info.steps;
+        } catch { /* unreadable zip — leave steps null */ }
+        out.saved.push({ folder: e.name, label, date, steps });
+      }
+      out.saved.sort((a, b) => b.folder.localeCompare(a.folder));
     } catch { out.saved = []; }
   }
   return out;

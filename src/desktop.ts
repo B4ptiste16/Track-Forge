@@ -66,6 +66,8 @@ export interface RlLive {
     step?: number; speed?: number; ds?: number; gear?: number; progress?: number;
     lat?: number; off?: number; damage?: number; steer?: number; gas?: number;
     brake?: number; note?: string;
+    fuelPct?: number | null; tyreWear?: number; penalty?: number; inPit?: boolean;
+    opps?: number; oppMissing?: boolean;
   } | null;
   model: { steps: number; savedAt: number; car?: string } | null;
   banked: string[];
@@ -76,6 +78,7 @@ export interface RlSavedBot {
   folder: string;
   label: string;
   date: string;
+  steps?: number | null;
 }
 
 export interface UpdateStatus {

@@ -259,20 +259,27 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
               >
                 🏎️ Bake bot → AC AI line
               </button>
-              {(live.saved?.length ?? 0) > 0 && (
-                <div className="train-saved">
-                  <div className="train-card-title">Saved bots — {selName}</div>
-                  {live.saved!.map((s) => (
+              <div className="train-saved">
+                <div className="train-card-title">
+                  Saved bots — {selName} {(live.saved?.length ?? 0) > 0 && <span className="muted">({live.saved!.length})</span>}
+                </div>
+                {(live.saved?.length ?? 0) === 0 ? (
+                  <div className="muted train-saved-empty">
+                    None yet. “💾 Save &amp; start new training…” archives the current bot here — nothing is ever deleted, and you can restore any save with one click.
+                  </div>
+                ) : (
+                  live.saved!.map((s) => (
                     <div key={s.folder} className="train-saved-row">
                       <span className="train-saved-name" title={s.folder}>{s.label}</span>
-                      <span className="muted">{s.date}</span>
+                      <span className="muted train-saved-steps">{s.steps != null ? `${fmt(s.steps)} steps` : ''}</span>
+                      <span className="muted train-saved-date">{s.date}</span>
                       <button className="small" disabled={anyBusy} onClick={() => restoreSaved(s.folder, s.label)}>
                         restore
                       </button>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="train-card">
@@ -285,12 +292,20 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
                   <div><b>{lv!.episode ?? 0}</b><span>episode</span></div>
                   <div><b>{fmt(lv!.trained)}</b><span>trained</span></div>
                   <div><b>{lv!.off ?? 0}s</b><span>off track</span></div>
+                  <div><b>{lv!.opps ?? 0}</b><span>rivals seen</span></div>
+                  <div><b>{lv!.fuelPct != null ? `${lv!.fuelPct}%` : '—'}</b><span>fuel</span></div>
                 </div>
               ) : (
                 <div className="muted">
                   {simBusy && !liveBusy
                     ? 'Sim training runs headless — watch its progress in the log below.'
                     : 'Telemetry appears here while a live AC script is running.'}
+                </div>
+              )}
+              {fresh && lv!.oppMissing && (
+                <div className="train-warn">
+                  ⚠ No rivals detected — enable the <b>AC RL HUD</b> app in AC (right-side app bar) so the
+                  bot can see opponents. Until then, racing/contact rewards do nothing.
                 </div>
               )}
               {fresh && lv!.note && <div className="train-note">{lv!.note}</div>}
