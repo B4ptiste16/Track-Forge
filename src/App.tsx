@@ -10,6 +10,7 @@ import { closeLoop } from './geometry/closeLoop';
 import { buildPackage, triggerDownload, downloadProjectJson } from './export/zip';
 import { SegmentList } from './components/SegmentList';
 import { SegmentEditor2D } from './components/SegmentEditor2D';
+import { PromptHost, textPrompt } from './prompt';
 import { Preview3D } from './components/Preview3D';
 import { InputsPanel } from './components/InputsPanel';
 import { KerbConfig } from './components/KerbConfig';
@@ -123,8 +124,8 @@ export default function App() {
 
   // ---- alternate layouts ---------------------------------------------------
   const layouts = project.layouts ?? [];
-  const saveLayoutAs = () => {
-    const name = window.prompt('Layout name:', `layout ${layouts.length + 1}`);
+  const saveLayoutAs = async () => {
+    const name = await textPrompt('Layout name:', `layout ${layouts.length + 1}`);
     if (!name) return;
     const snap = snapshotLayout(project, name);
     const others = layouts.filter((l) => l.name !== name);
@@ -173,6 +174,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <PromptHost />
       <header className="toolbar">
         <button onClick={() => setView('home')} title="Back to home">⌂</button>
         <div className="brand">🏁 AC BAPTOU</div>
@@ -195,7 +197,7 @@ export default function App() {
           {layouts.length > 0 && (
             <button
               className="danger"
-              onClick={() => { const n = window.prompt('Delete which layout?', layouts[layouts.length - 1]?.name); if (n) deleteLayout(n); }}
+              onClick={async () => { const n = await textPrompt('Delete which layout?', layouts[layouts.length - 1]?.name); if (n) deleteLayout(n); }}
             >
               Delete…
             </button>

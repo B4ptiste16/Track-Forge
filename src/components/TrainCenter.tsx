@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { desktop } from '../desktop';
 import type { RlLive, RlStatus, RlTrack } from '../desktop';
+import { textPrompt, PromptHost } from '../prompt';
 
 const LIVE_SCRIPTS = new Set(['train.py', 'drive.py']);
 
@@ -72,7 +73,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
   };
 
   const bank = async () => {
-    const label = window.prompt(`Label for this banked checkpoint of "${selected}":`, 'solo');
+    const label = await textPrompt(`Label for this banked checkpoint of "${selected}":`, 'solo');
     if (label) await start('bank_model.py', [label, selected]);
   };
 
@@ -114,7 +115,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
   // (slower), or completely BLANK with no pre-training at all. Recorded
   // laps/demos are never touched.
   const saveAndReset = async () => {
-    const label = window.prompt(`Name "${selected}"'s current training before starting a new one:`, '');
+    const label = await textPrompt(`Name "${selected}"'s current training before starting a new one:`, '');
     if (!label) return;
     const choice = await desktop!.confirm(
       `Start a new training run for "${selected}"`,
@@ -158,6 +159,7 @@ export function TrainCenter({ onHome }: { onHome: () => void }) {
 
   return (
     <div className="app train">
+      <PromptHost />
       <header className="toolbar">
         <button onClick={onHome} title="Back to home">⌂</button>
         <div className="brand">🤖 AI Training</div>
