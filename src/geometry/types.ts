@@ -58,6 +58,15 @@ export interface Overlap {
   y: number;
 }
 
+// A floodlight mast: where its lamp head sits and the point on the racing
+// surface it is aimed at. Exported to CSP's ext_config.ini as a real light
+// source (see export/lighting.ts) so the circuit can be raced at night.
+export interface LightMast {
+  head: Vec3; // lamp-head position (native Z-up frame)
+  aim: Vec3;  // point on the track the lamp points at
+  pit: boolean; // pit-lane mast (shorter, wider, dimmer) vs trackside
+}
+
 export interface BuiltTrack {
   centerline: CenterlineSample[];
   spans: SegmentSpan[];
@@ -66,6 +75,9 @@ export interface BuiltTrack {
   meshes: MeshData[]; // ordered for draw/export: grass, road, pit, kerb, wall
   empties: EmptyData[];
   overlaps: Overlap[];
+  // Night floodlights: fixture geometry is in `meshes`; these describe the light
+  // SOURCES, exported to CSP's ext_config.ini (vanilla AC has no track lights).
+  lightMasts: LightMast[];
 }
 
 // Export tolerance for loop closure.

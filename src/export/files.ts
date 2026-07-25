@@ -4,6 +4,7 @@ import { slugify, THEME_PALETTES } from '../state/project';
 import { genBlenderScript } from './blenderScript';
 import { genFbx } from './fbx';
 import { genSurfacesIni } from './surfaces';
+import { genExtConfig, genLightingIni } from './lighting';
 import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
@@ -32,6 +33,10 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     // KsEditor auto-loads this on Import FBX → all materials pre-assigned.
     { path: `${slug}.fbx.ini`, text: genKsPersistence(slug, fbxText, built, textures) },
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
+    { path: 'data/lighting.ini', text: genLightingIni() },
+    // Night floodlights for CSP. Vanilla AC has no dynamic track lights, so this
+    // is inert without CSP and lights the circuit properly once it's installed.
+    ...(built.lightMasts.length ? [{ path: 'extension/ext_config.ini', text: genExtConfig(built.lightMasts) }] : []),
     { path: 'ui/ui_track.json', text: genUiTrack(project, built) },
     { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },
     // AI racing line — AC's opponents + the "ideal line" app work out of the box.

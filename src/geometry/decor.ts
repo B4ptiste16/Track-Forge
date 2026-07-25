@@ -1,5 +1,5 @@
 import type { TrackProject, Theme } from '../types';
-import type { CenterlineSample, SegmentSpan, MeshData, Vec3 } from './types';
+import type { CenterlineSample, SegmentSpan, LightMast, MeshData, Vec3 } from './types';
 import { perpLeft, offsetPoint, leftEdge, rightEdge } from './frames';
 import { addQuadUp, addQuadToward } from './meshbuilder';
 import { hex01 } from './kerbs';
@@ -108,6 +108,52 @@ function paintTree(m: MeshData, x: number, y: number, z: number, h: number, rng:
   }
 }
 
+// Floodlight masts around the circuit: a tapered pole plus a lamp-head bar of
+// individual lamp faces. The lamp faces use a bright near-white colour so they
+// read as lit fixtures; the actual illumination comes from the CSP lights we
+// write for each mast (vanilla AC cannot light a track dynamically).
+function buildLightMasts(
+  pole: MeshData, lamp: MeshData, samples: CenterlineSample[], width: number,
+  resolved: ResolvedSample[], spacing: number,
+): LightMast[] {
+  const out: LightMast[] = [];
+  if (samples.length < 4 || spacing <= 0) return out;
+  const grey: Vec3 = [0.58, 0.60, 0.64];
+  const lit: Vec3 = [1.0, 0.97, 0.88];
+  let seed = 4242;
+  const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  let next = 0;
+  for (let i = 0; i < samples.length - 1; i++) {
+    const s = samples[i];
+    if (s.dist < next) continue;
+    next = s.dist + spacing;
+    // alternate sides so the track is lit from both hands down the lap
+    const side: 'left' | 'right' = out.length % 2 === 0 ? 'left' : 'right';
+    const r = resolved[i][side];
+    const clear = Math.max(r.width, r.wallDist ?? r.width) + 4;
+    const [lx, ly] = perpLeft(s.heading);
+    const sign = side === 'left' ? 1 : -1;
+    const edge = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
+    const bx = edge[0] + lx * clear * sign;
+    const by = edge[1] + ly * clear * sign;
+    const z0 = s.pos[2];
+    const h = 15 + rng() * 3;
+    // pole: two stacked boxes so it tapers
+    paintBox(pole, bx, by, z0, z0 + h * 0.6, 0.28, grey);
+    paintBox(pole, bx, by, z0 + h * 0.6, z0 + h, 0.18, grey);
+    // lamp head: a short bar of lamp faces, cantilevered toward the track
+    const inx = -lx * sign, iny = -ly * sign; // unit vector toward the track
+    const hx = bx + inx * 1.6, hy = by + iny * 1.6;
+    paintBox(lamp, hx, hy, z0 + h, z0 + h + 0.9, 1.15, lit);
+    out.push({
+      head: [hx, hy, z0 + h + 0.45],
+      aim: [s.pos[0], s.pos[1], z0], // centre of the track beside the mast
+      pit: false,
+    });
+  }
+  return out;
+}
+
 // Treeline outside the barriers, both sides, density 0..1 from the preset.
 // Placed beyond the run-off/wall so trees never intrude on the racing surface
 // or the escape roads; spacing and size jitter keep it from looking planted.
@@ -193,8 +239,8 @@ export function buildDecor(
   spans: SegmentSpan[],
   width: number,
   resolved: ResolvedSample[],
-): MeshData[] {
-  if (samples.length < 2) return [];
+): { meshes: MeshData[]; masts: LightMast[] } {
+  if (samples.length < 2) return { meshes: [], masts: [] };
   const isFrance = project.meta.theme === 'france';
   const seats = (SEAT_PATTERNS[project.meta.theme] ?? SEAT_PATTERNS.tarmac_day).map(hex01);
   const pole = mesh('DECOR_POLE');
@@ -378,5 +424,15 @@ export function buildDecor(
   const tree = mesh('DECOR_TREE');
   buildTrees(tree, samples, width, resolved, project.decor?.trees ?? 0);
 
-  return [pole, flag, stand, frame, arch, marker, gantry, lights, tree].filter((m) => m.faces.length > 0);
+  // Floodlight masts, so the circuit can be raced after dark. The geometry is
+  // the visible fixture; the light itself is written to CSP's ext_config.ini.
+  const mastPole = mesh('DECOR_MAST');
+  const mastLamp = mesh('DECOR_LAMP');
+  const masts = (project.decor?.lightSpacing ?? 0) > 0
+    ? buildLightMasts(mastPole, mastLamp, samples, width, resolved, project.decor!.lightSpacing!)
+    : [];
+
+  const meshes = [pole, flag, stand, frame, arch, marker, gantry, lights, tree, mastPole, mastLamp]
+    .filter((m) => m.faces.length > 0);
+  return { meshes, masts };
 }

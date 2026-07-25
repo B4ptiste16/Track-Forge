@@ -82,12 +82,14 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
     controls.enableDamping = true;
     controls.dampingFactor = 0.12;
     controls.screenSpacePanning = true; // pan in the view plane (intuitive)
-    controls.zoomToCursor = true;       // zoom toward the cursor / a corner
     controls.rotateSpeed = 0.9;
-    controls.zoomSpeed = 1.4;
     controls.panSpeed = 1.1;
-    controls.minDistance = 2;
+    controls.minDistance = 0.4;
     controls.maxDistance = 6000;
+    // Wheel zoom is handled manually below (see onWheel): OrbitControls scales
+    // its dolly by the distance to `target`, so once you were near the pivot —
+    // or aiming at something far from it — each scroll moved almost nothing.
+    controls.enableZoom = false;
     // Left = rotate, right = pan, wheel = zoom; also allow middle-drag to pan.
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
@@ -126,16 +128,71 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
 
     // Double-click to recentre on the clicked point.
     const raycaster = new THREE.Raycaster();
-    const onDblClick = (ev: MouseEvent) => {
+    // World point under a screen position: the track surface if the ray hits it,
+    // otherwise the horizontal plane through the current pivot (so zooming at
+    // the sky/background still behaves instead of doing nothing).
+    const pointUnder = (clientX: number, clientY: number): THREE.Vector3 | null => {
       const rect = renderer.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(
-        ((ev.clientX - rect.left) / rect.width) * 2 - 1,
-        -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, camera);
       const hits = raycaster.intersectObjects(group.children, true);
-      if (hits.length) {
-        controls.target.copy(hits[0].point);
+      if (hits.length) return hits[0].point.clone();
+      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -controls.target.z);
+      const p = new THREE.Vector3();
+      return raycaster.ray.intersectPlane(plane, p) ? p : null;
+    };
+
+    // ZOOM: dolly the camera AND the pivot along the ray to whatever is under
+    // the cursor, by a FRACTION OF THE REMAINING DISTANCE to it. Because the
+    // step scales with how far away the thing actually is, the zoom keeps biting
+    // all the way in (the old behaviour ground to a halt as you approached) and
+    // it converges on the cursor. Moving camera and target by the same vector is
+    // a pure dolly, so the view never swings while zooming — and it leaves the
+    // pivot sitting on the thing you zoomed into, which is what makes rotation
+    // behave afterwards.
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const hit = pointUnder(ev.clientX, ev.clientY);
+      if (!hit) return;
+      const toHit = hit.clone().sub(camera.position);
+      const dist = toHit.length();
+      if (dist < 1e-4) return;
+      toHit.divideScalar(dist); // normalise
+      const notches = Math.max(-3, Math.min(3, ev.deltaY / 100));
+      // 22% of the remaining distance per notch, and never more than 88% of the
+      // way (so you approach a surface smoothly instead of punching through it).
+      const frac = Math.min(0.88, 0.22 * Math.abs(notches));
+      const step = (notches < 0 ? 1 : -1) * frac * dist;
+      camera.position.addScaledVector(toHit, step);
+      controls.target.addScaledVector(toHit, step);
+      controls.update();
+    };
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+
+    // ROTATE: before an orbit starts, put the pivot on whatever is at the CENTRE
+    // of the view. The old pivot stayed at the track centre, so orbiting swept a
+    // huge arc around a point far behind what you were inspecting. A point at
+    // screen centre lies exactly along the view axis, so moving the pivot there
+    // changes nothing on screen — it just shrinks the orbit radius to the thing
+    // you're actually looking at.
+    const onPointerDown = (ev: PointerEvent) => {
+      if (ev.button !== 0) return; // left = rotate
+      const rect = renderer.domElement.getBoundingClientRect();
+      const centre = pointUnder(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (centre) {
+        const d = camera.position.distanceTo(centre);
+        if (d > 0.5 && d < 4000) controls.target.copy(centre);
+      }
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+    const onDblClick = (ev: MouseEvent) => {
+      const hit = pointUnder(ev.clientX, ev.clientY);
+      if (hit) {
+        controls.target.copy(hit);
         controls.update();
       }
     };
@@ -145,6 +202,8 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
       cancelAnimationFrame(raf);
       ro.disconnect();
       renderer.domElement.removeEventListener('dblclick', onDblClick);
+      renderer.domElement.removeEventListener('wheel', onWheel);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       controls.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);

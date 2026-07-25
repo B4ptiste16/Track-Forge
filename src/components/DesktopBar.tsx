@@ -10,6 +10,7 @@ interface Settings {
   ksEditorPath?: string;
   lastFbx?: string;
   lastRoot?: string;
+  texturePackDir?: string; // folder of real textures that override the generated ones
 }
 
 // Desktop-only actions: write the track folder straight to disk (e.g. into AC's
@@ -99,7 +100,7 @@ export function DesktopBar({ project }: { project: TrackProject }) {
     }
   };
 
-  const changePath = async (key: 'acTracksPath' | 'ksEditorPath') => {
+  const changePath = async (key: 'acTracksPath' | 'ksEditorPath' | 'texturePackDir') => {
     if (!desktop) return;
     const picked =
       key === 'ksEditorPath'
@@ -125,6 +126,20 @@ export function DesktopBar({ project }: { project: TrackProject }) {
             <b>KsEditor.exe</b>
             <div className="muted">{shorten(s.ksEditorPath)}</div>
             <button className="small" onClick={() => changePath('ksEditorPath')}>choose…</button>
+          </div>
+          <div>
+            <b>Texture pack (optional)</b>
+            <div className="muted">{s.texturePackDir ? shorten(s.texturePackDir) : 'using built-in generated textures'}</div>
+            <div className="muted" style={{ fontSize: 11, lineHeight: 1.45, marginTop: 4 }}>
+              Drop real textures in a folder — any file named after a surface replaces the generated
+              one on export: <code>road</code>, <code>grass</code>, <code>sand</code> (gravel), <code>kerb</code>,
+              {' '}<code>concrete</code>, <code>tarmac</code>, <code>dirt</code>, <code>wall</code>, <code>tree</code>.
+              Must be <b>.png</b> and ideally seamless/tileable (1–2k).
+            </div>
+            <button className="small" onClick={() => changePath('texturePackDir')}>choose…</button>
+            {s.texturePackDir && (
+              <button className="small" onClick={() => save({ ...s, texturePackDir: undefined })}>use built-in</button>
+            )}
           </div>
           {s.lastRoot && (
             <button className="small" onClick={() => desktop?.openPath(s.lastRoot!)}>open last export folder</button>

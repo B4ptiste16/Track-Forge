@@ -274,7 +274,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
     ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
-    esc.poly, esc.bollards, ...decor, pitDeco.building, pitDeco.garage, ...bldgs,
+    esc.poly, esc.bollards, ...decor.meshes, pitDeco.building, pitDeco.garage, ...bldgs,
   ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own
@@ -286,5 +286,5 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     }
   }
 
-  return { centerline: samples, spans, totalLength, closure, meshes, empties, overlaps };
+  return { centerline: samples, spans, totalLength, closure, meshes, empties, overlaps, lightMasts: decor.masts };
 }

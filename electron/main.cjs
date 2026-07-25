@@ -136,19 +136,44 @@ ipcMain.handle('dialog:saveTrack', async (e, { defaultPath }) => {
   return r.canceled || !r.filePath ? null : r.filePath;
 });
 
+// TEXTURE PACK: the app's built-in textures are drawn procedurally, which will
+// never match a real photo-sourced material. If the user points `texturePackDir`
+// at a folder of images, any file whose NAME matches a generated texture wins.
+// So dropping in road.png / grass.png / sand.png / kerb.png … upgrades the whole
+// track with no other changes. Matching is by basename, extension-insensitive,
+// so grass.jpg replaces grass.png (we keep the generated name so the FBX's
+// material references still resolve).
+function texturePackOverride(relPath) {
+  const dir = loadSettings().texturePackDir;
+  if (!dir || !fs.existsSync(dir)) return null;
+  const m = relPath.match(/^texture\/(.+)\.png$/i);
+  if (!m) return null;
+  // PNG only, deliberately: the exported FBX/ksEditor persistence reference this
+  // file by its .png name, and writing JPEG or DDS bytes under a .png name can
+  // fail to load. Convert other formats to PNG first (any image editor will do).
+  const cand = path.join(dir, m[1] + '.png');
+  try {
+    if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return fs.readFileSync(cand);
+  } catch { /* unreadable — fall through to the generated one */ }
+  return null;
+}
+
 // Write the track files under baseDir/<slug>. Returns ok + the folder + fbx path.
 ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   const root = path.join(baseDir, slug);
   let fbxPath = null;
+  const swapped = [];
   try {
     for (const f of files) {
       const dest = path.join(root, f.path);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      const data = f.encoding === 'base64' ? Buffer.from(f.data, 'base64') : f.data;
+      const packed = texturePackOverride(f.path);
+      const data = packed ?? (f.encoding === 'base64' ? Buffer.from(f.data, 'base64') : f.data);
+      if (packed) swapped.push(path.basename(f.path));
       fs.writeFileSync(dest, data);
       if (f.path.toLowerCase().endsWith('.fbx')) fbxPath = dest;
     }
-    return { ok: true, root, fbxPath };
+    return { ok: true, root, fbxPath, texturesFromPack: swapped };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err), root };
   }

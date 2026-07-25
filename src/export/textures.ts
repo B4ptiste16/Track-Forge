@@ -428,6 +428,37 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       speckle(ctx, 250, [0.4, 1.0], 0.10, false);
       break;
     }
+    case 'DECOR_LAMP': {
+      // Lamp head: a grid of bright lens squares in a dark housing, so the
+      // fixture reads as a floodlight cluster rather than a white box.
+      ctx.fillStyle = '#2a2c31';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const cell = px(42);
+      for (let y = px(6); y < SIZE - px(6); y += cell) {
+        for (let x = px(6); x < SIZE - px(6); x += cell) {
+          const g2 = ctx.createRadialGradient(x + cell * 0.4, y + cell * 0.4, 1, x + cell * 0.4, y + cell * 0.4, cell * 0.5);
+          g2.addColorStop(0, '#ffffff');
+          g2.addColorStop(0.55, '#fff3cf');
+          g2.addColorStop(1, 'rgba(255,225,160,0.35)');
+          ctx.fillStyle = g2;
+          ctx.fillRect(x, y, cell * 0.8, cell * 0.8);
+        }
+      }
+      break;
+    }
+    case 'DECOR_MAST': {
+      // Galvanised pole: vertical shading + faint banding.
+      const [r, g, b] = hexRgb(hex);
+      for (let x = 0; x < SIZE; x++) {
+        const k = 1 - Math.abs(x - SIZE / 2) / (SIZE / 2);
+        const d = -34 + 58 * k;
+        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
+        ctx.fillRect(x, 0, 1, SIZE);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.14)';
+      for (let y = 0; y < SIZE; y += px(64)) ctx.fillRect(0, y, SIZE, px(2));
+      break;
+    }
     case 'DECOR_TREE': {
       // Mottled foliage: clumps of light/dark leaves. Per-tree vertex colours
       // tint this, so one texture covers a whole varied treeline.

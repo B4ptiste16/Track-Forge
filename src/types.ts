@@ -166,6 +166,9 @@ export interface SurfaceDetail {
 export interface DecorConfig {
   trees: number; // 0 = none .. 1 = dense treeline outside the barriers
   grandstands: boolean; // stands on the main straight + turn 1
+  // Floodlight masts every N metres (0 = unlit circuit). Their light sources are
+  // written for CSP — vanilla AC cannot light a track dynamically.
+  lightSpacing?: number;
 }
 
 export interface TrackProject {

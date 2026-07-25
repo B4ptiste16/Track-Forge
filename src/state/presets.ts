@@ -46,7 +46,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'grass',
     walls: { enabled: true, height: 1.3, style: 'tecpro' },
     pit: { paddock: true, structures: true },
-    decor: { trees: 0.25, grandstands: true },
+    decor: { trees: 0.25, grandstands: true, lightSpacing: 85 },
     surfaceDetail: { grassHeight: 0.05, gravelDepth: 0.07 },
   },
   {
@@ -61,7 +61,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'grass',
     walls: { enabled: true, height: 1.0, style: 'armco' },
     pit: { paddock: false, structures: true },
-    decor: { trees: 0.85, grandstands: true },
+    decor: { trees: 0.85, grandstands: true, lightSpacing: 0 },
     surfaceDetail: { grassHeight: 0.07, gravelDepth: 0.05 },
   },
   {
@@ -76,7 +76,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'grass',
     walls: { enabled: true, height: 1.1, style: 'armco' },
     pit: { paddock: true, structures: true },
-    decor: { trees: 0.55, grandstands: true },
+    decor: { trees: 0.55, grandstands: true, lightSpacing: 130 },
     surfaceDetail: { grassHeight: 0.06, gravelDepth: 0.1 },
   },
   {
@@ -91,7 +91,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'concrete',
     walls: { enabled: true, height: 1.6, style: 'solid' },
     pit: { paddock: false, structures: true },
-    decor: { trees: 0.15, grandstands: true },
+    decor: { trees: 0.15, grandstands: true, lightSpacing: 60 },
     surfaceDetail: { grassHeight: 0.0, gravelDepth: 0.0 },
   },
   {
@@ -106,7 +106,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'gravel',
     walls: { enabled: false, height: 1.0, style: 'solid' },
     pit: { paddock: true, structures: false },
-    decor: { trees: 0.0, grandstands: false },
+    decor: { trees: 0.0, grandstands: false, lightSpacing: 0 },
     surfaceDetail: { grassHeight: 0.0, gravelDepth: 0.06 },
   },
   {
@@ -121,7 +121,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     insideSurface: 'grass',
     walls: { enabled: true, height: 1.4, style: 'tecpro' },
     pit: { paddock: true, structures: true },
-    decor: { trees: 0.2, grandstands: true },
+    decor: { trees: 0.2, grandstands: true, lightSpacing: 55 },
     surfaceDetail: { grassHeight: 0.05, gravelDepth: 0.07 },
   },
 ];
