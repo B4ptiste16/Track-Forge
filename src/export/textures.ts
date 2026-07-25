@@ -11,7 +11,14 @@ export interface TexFile {
   bytes: Uint8Array;
 }
 
-const SIZE = 256;
+// 512² instead of 256²: 4x the pixels, so surfaces hold up when the camera is
+// close to the ground (the old ones went mushy under the car). Feature COUNTS
+// scale with the area via dens(), otherwise a bigger canvas would just look
+// like the same texture blurred up rather than a more detailed one.
+const SIZE = 512;
+const S = SIZE / 256; // linear scale vs the original authoring size
+const dens = (base: number) => Math.round(base * S * S); // per-area feature count
+const px = (n: number) => n * S; // a length authored at 256 -> this canvas
 const TRICOLORE = ['#0055A4', '#f2f2f2', '#EF4135'];
 
 // Short texture filename for a surface mesh name (1ROAD -> road).
@@ -82,30 +89,81 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
     case '1ROAD':
     case '1PIT': {
       grain(ctx, 10);
-      speckle(ctx, 900, [0.4, 1.1], 0.16, true); // fine aggregate
-      speckle(ctx, 500, [0.4, 1.0], 0.18, false);
+      // asphalt = a mix of aggregate sizes in binder, not uniform speckle
+      speckle(ctx, dens(900), [px(0.4), px(1.1)], 0.16, true); // fine aggregate
+      speckle(ctx, dens(500), [px(0.4), px(1.0)], 0.18, false);
+      speckle(ctx, dens(90), [px(1.1), px(2.3)], 0.13, true);  // coarser stones
+      // broad tonal patches: laid in passes, so asphalt is never one flat tone
+      const [rr, gg, bb] = hexRgb(hex);
+      for (let i = 0; i < dens(14); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(18 + Math.random() * 46);
+        const d = -7 + Math.random() * 14;
+        const gr = ctx.createRadialGradient(x, y, 1, x, y, rad);
+        gr.addColorStop(0, `rgba(${rr + d},${gg + d},${bb + d},0.5)`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gr;
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+      }
       break;
     }
     case '1GRASS': {
       grain(ctx, 13);
-      // short blade streaks
       const [r, g, b] = hexRgb(hex);
-      for (let i = 0; i < 1400; i++) {
-        const dark = Math.random() < 0.5;
-        const d = dark ? -26 : 22;
+      // 1) mown/growth clumps — big soft tonal variation so it isn't flat green
+      for (let i = 0; i < dens(20); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(14 + Math.random() * 40);
+        const d = -16 + Math.random() * 30;
+        const gr = ctx.createRadialGradient(x, y, 1, x, y, rad);
+        gr.addColorStop(0, `rgba(${r + d},${g + d + 6},${b + d},0.55)`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gr;
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+      }
+      // 2) individual blades, angled and varied in length/tone (not all vertical)
+      for (let i = 0; i < dens(2600); i++) {
+        const d = Math.random() < 0.5 ? -26 - Math.random() * 12 : 20 + Math.random() * 16;
+        ctx.save();
+        ctx.translate(Math.random() * SIZE, Math.random() * SIZE);
+        ctx.rotate((Math.random() - 0.5) * 1.1); // lean
         ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, 1, 2 + Math.random() * 3);
+        ctx.fillRect(0, 0, px(1), px(2 + Math.random() * 4));
+        ctx.restore();
+      }
+      // 3) a few dry/bare scuffs
+      for (let i = 0; i < dens(7); i++) {
+        ctx.fillStyle = `rgba(${r + 34},${g + 22},${b - 6},0.22)`;
+        ctx.beginPath();
+        ctx.ellipse(Math.random() * SIZE, Math.random() * SIZE, px(6 + Math.random() * 12), px(3 + Math.random() * 6),
+          Math.random() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
       }
       break;
     }
     case '1SAND': { // gravel trap
       grain(ctx, 8);
       const [r, g, b] = hexRgb(hex);
-      for (let i = 0; i < 700; i++) {
-        // little pebbles: lit body + a darker under-edge
-        const pr = 1 + Math.random() * 2.4;
+      // 1) DRAG MARKS: a used trap is raked into ruts and scored by cars that
+      //    ploughed through it. Baked in, because AC can't deform a surface at
+      //    runtime — this is what gives the "cars have been through here" read.
+      for (let i = 0; i < dens(9); i++) {
+        const y0 = Math.random() * SIZE;
+        const ang = (Math.random() - 0.5) * 0.5;
+        ctx.save();
+        ctx.translate(Math.random() * SIZE, y0);
+        ctx.rotate(ang);
+        const w = px(5 + Math.random() * 9), len = px(60 + Math.random() * 180);
+        ctx.fillStyle = 'rgba(0,0,0,0.16)'; // gouged trough
+        ctx.fillRect(-len / 2, 0, len, w);
+        ctx.fillStyle = `rgba(${r + 30},${g + 26},${b + 20},0.35)`; // thrown-up ridge
+        ctx.fillRect(-len / 2, -px(2), len, px(2.5));
+        ctx.fillRect(-len / 2, w, len, px(2.5));
+        ctx.restore();
+      }
+      // 2) pebbles: lit body + darker under-edge, several size classes
+      for (let i = 0; i < dens(1100); i++) {
+        const pr = px(0.8 + Math.random() * (Math.random() < 0.12 ? 4.2 : 2.0));
         const x = Math.random() * SIZE, y = Math.random() * SIZE;
-        const d = -24 + Math.random() * 60;
+        const d = -24 + Math.random() * 62;
         ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
         ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(0,0,0,0.22)';
@@ -115,35 +173,35 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
     }
     case '1CONCRETE': {
       grain(ctx, 6);
-      speckle(ctx, 350, [0.4, 1.0], 0.10, false);
+      speckle(ctx, dens(350), [px(0.4), px(1.0)], 0.10, false);
       ctx.fillStyle = 'rgba(0,0,0,0.18)'; // slab seams
-      for (let y = 0; y < SIZE; y += 64) ctx.fillRect(0, y, SIZE, 1);
-      for (let x = 0; x < SIZE; x += 128) ctx.fillRect(x, 0, 1, SIZE);
+      for (let y = 0; y < SIZE; y += px(64)) ctx.fillRect(0, y, SIZE, px(1));
+      for (let x = 0; x < SIZE; x += px(128)) ctx.fillRect(x, 0, px(1), SIZE);
       break;
     }
     case '1TARMAC': { // paved run-off: like the road but lighter, patch seams
       grain(ctx, 11);
-      speckle(ctx, 800, [0.4, 1.1], 0.14, true);
-      speckle(ctx, 450, [0.4, 1.0], 0.16, false);
+      speckle(ctx, dens(800), [px(0.4), px(1.1)], 0.14, true);
+      speckle(ctx, dens(450), [px(0.4), px(1.0)], 0.16, false);
       ctx.fillStyle = 'rgba(0,0,0,0.10)'; // repave patch seams
-      ctx.fillRect(0, 90, SIZE, 4);
-      ctx.fillRect(150, 0, 4, SIZE);
+      ctx.fillRect(0, px(90), SIZE, px(4));
+      ctx.fillRect(px(150), 0, px(4), SIZE);
       break;
     }
     case '1DIRT': { // packed earth
       grain(ctx, 12);
       const [r, g, b] = hexRgb(hex);
-      for (let i = 0; i < 900; i++) { // dry clods + small stones
+      for (let i = 0; i < dens(900); i++) { // dry clods + small stones
         const d = -30 + Math.random() * 55;
         ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        const pr = 0.6 + Math.random() * 1.8;
+        const pr = px(0.6 + Math.random() * 1.8);
         ctx.beginPath();
         ctx.arc(Math.random() * SIZE, Math.random() * SIZE, pr, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.fillStyle = 'rgba(0,0,0,0.10)'; // faint wheel ruts
-      ctx.fillRect(0, 70, SIZE, 8);
-      ctx.fillRect(0, 180, SIZE, 8);
+      ctx.fillRect(0, px(70), SIZE, px(8));
+      ctx.fillRect(0, px(180), SIZE, px(8));
       break;
     }
     case '1KERB': {
@@ -368,6 +426,26 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
     case 'DECOR_FRAME': {
       grain(ctx, 7);
       speckle(ctx, 250, [0.4, 1.0], 0.10, false);
+      break;
+    }
+    case 'DECOR_TREE': {
+      // Mottled foliage: clumps of light/dark leaves. Per-tree vertex colours
+      // tint this, so one texture covers a whole varied treeline.
+      grain(ctx, 12);
+      const [r, g, b] = hexRgb(hex);
+      for (let i = 0; i < dens(1500); i++) {
+        const d = -40 + Math.random() * 80;
+        ctx.fillStyle = `rgba(${r + d},${g + d},${b + d * 0.6},0.75)`;
+        ctx.beginPath();
+        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, px(1 + Math.random() * 3.5), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < dens(14); i++) { // shadowed gaps between leaf clusters
+        ctx.fillStyle = 'rgba(0,0,0,0.16)';
+        ctx.beginPath();
+        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, px(6 + Math.random() * 14), 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     }
     case 'DECOR_POLE': {

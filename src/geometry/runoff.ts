@@ -1,4 +1,4 @@
-import type { RunoffType, WallConfig, WallGap, ManualWall } from '../types';
+import type { RunoffType, SurfaceDetail, WallConfig, WallGap, ManualWall } from '../types';
 import type { CenterlineSample, MeshData, SegmentSpan, Vec3 } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
 import { addQuadUp, addQuadToward, addTriUp } from './meshbuilder';
@@ -43,6 +43,20 @@ export interface ResolvedSide {
 export interface ResolvedSample {
   left: ResolvedSide;
   right: ResolvedSide;
+}
+
+// Vertical offset (m) a run-off surface sits at, relative to the track plane:
+// grass/dirt verges stand slightly PROUD of the tarmac, gravel traps are dug
+// slightly BELOW it. Paved surfaces stay flush. Kept to a few cm — enough to
+// see and feel, small enough that a car crossing it isn't launched.
+export function surfaceRelief(surfName: string, d: SurfaceDetail): number {
+  if (surfName === '1GRASS' || surfName === '1DIRT') return Math.max(0, Math.min(0.2, d.grassHeight || 0));
+  if (surfName === '1SAND') return -Math.max(0, Math.min(0.25, d.gravelDepth || 0));
+  return 0;
+}
+
+function raise(p: Vec3, dz: number): Vec3 {
+  return [p[0], p[1], p[2] + dz];
 }
 
 export function runoffSurfaceName(type: RunoffType | string): string {
@@ -305,6 +319,7 @@ export function buildRunoff(
   closed: boolean,
   wallGaps: WallGap[] = [],
   wallFree: WallFreeCorridor[] = [],
+  detail: SurfaceDetail = { grassHeight: 0, gravelDepth: 0 },
 ): MeshData[] {
   const surfaces = new Map<string, MeshData>();
   const getSurface = (name: string): MeshData => {
@@ -365,16 +380,35 @@ export function buildRunoff(
       // track edge, then the gravel out to the strip edge.
       if (inA || inB) {
         const r = resolved[i][side];
+        // SURFACE RELIEF: a real verge isn't flush with the tarmac. Grass/dirt
+        // sits a few cm ABOVE the track (you feel the lip) and a gravel trap is
+        // dug BELOW it (the car drops in). `prevZ` tracks the level of the band
+        // we just emitted so each new band gets a vertical connecting face —
+        // otherwise a raised/sunken band would leave a hole in the mesh.
+        let prevZ = 0;
         const emitBand = (surfName: string, offIn: (k: number) => number, offOut: (k: number) => number) => {
           const oInA = offIn(i), oOutA = offOut(i), oInB = offIn(i + 1), oOutB = offOut(i + 1);
           if (oOutA - oInA <= 0.03 && oOutB - oInB <= 0.03) return;
+          const dz = surfaceRelief(surfName, detail);
           const mesh = getSurface(surfName);
           const base = mesh.vertices.length;
-          mesh.vertices.push(edgePt(i, side, oInA));
-          mesh.vertices.push(edgePt(i, side, oOutA));
-          mesh.vertices.push(edgePt(i + 1, side, oInB));
-          mesh.vertices.push(edgePt(i + 1, side, oOutB));
+          mesh.vertices.push(raise(edgePt(i, side, oInA), dz));
+          mesh.vertices.push(raise(edgePt(i, side, oOutA), dz));
+          mesh.vertices.push(raise(edgePt(i + 1, side, oInB), dz));
+          mesh.vertices.push(raise(edgePt(i + 1, side, oOutB), dz));
           addQuadUp(mesh.vertices, mesh.faces, base, base + 1, base + 3, base + 2);
+          // vertical lip at the inner edge, from the previous level to this one
+          if (Math.abs(dz - prevZ) > 0.005) {
+            const [plx, ply] = perpLeft(samples[i].heading);
+            const towardTrack: Vec3 = side === 'left' ? [-plx, -ply, 0] : [plx, ply, 0];
+            const l = mesh.vertices.length;
+            mesh.vertices.push(raise(edgePt(i, side, oInA), prevZ));
+            mesh.vertices.push(raise(edgePt(i, side, oInA), dz));
+            mesh.vertices.push(raise(edgePt(i + 1, side, oInB), dz));
+            mesh.vertices.push(raise(edgePt(i + 1, side, oInB), prevZ));
+            addQuadToward(mesh.vertices, mesh.faces, l, l + 1, l + 2, l + 3, towardTrack);
+          }
+          prevZ = dz;
         };
         if (r.splitAt && r.splitSurface) {
           const split = r.splitAt;

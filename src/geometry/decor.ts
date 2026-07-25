@@ -1,6 +1,6 @@
 import type { TrackProject, Theme } from '../types';
 import type { CenterlineSample, SegmentSpan, MeshData, Vec3 } from './types';
-import { perpLeft, offsetPoint } from './frames';
+import { perpLeft, offsetPoint, leftEdge, rightEdge } from './frames';
 import { addQuadUp, addQuadToward } from './meshbuilder';
 import { hex01 } from './kerbs';
 import type { ResolvedSample } from './runoff';
@@ -61,6 +61,79 @@ function paintBox(m: MeshData, cx: number, cy: number, z0: number, z1: number, h
     m.uvs!.push([x / 4, y / 4]);
   }
   addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
+}
+
+// One tree: a trunk box + a canopy of stacked tapering rings (solid geometry,
+// NOT an alpha billboard — a billboard needs its material set to alpha-blend by
+// hand in ksEditor, and shows up as an opaque green rectangle if you forget).
+// ~30 triangles, so a full treeline stays cheap.
+function paintTree(m: MeshData, x: number, y: number, z: number, h: number, rng: () => number): void {
+  const trunkH = h * 0.34;
+  const brown: Vec3 = [0.28 + rng() * 0.08, 0.19 + rng() * 0.05, 0.11];
+  paintBox(m, x, y, z, z + trunkH, h * 0.035, brown);
+  // canopy: 3 stacked hexagonal rings, each narrower than the one below
+  const g = 0.16 + rng() * 0.16; // per-tree green variation
+  const green: Vec3 = [0.13 + g * 0.35, 0.30 + g, 0.12 + g * 0.25];
+  const dark: Vec3 = [green[0] * 0.72, green[1] * 0.72, green[2] * 0.72];
+  const tiers = 3;
+  for (let t = 0; t < tiers; t++) {
+    const z0 = z + trunkH + (h - trunkH) * (t / tiers) * 0.9;
+    const z1 = z + trunkH + (h - trunkH) * ((t + 1) / tiers);
+    const rad = h * (0.30 - t * 0.075) * (0.85 + rng() * 0.3);
+    const n = 6;
+    const pts: [number, number][] = [];
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + rng() * 0.2;
+      pts.push([x + Math.cos(a) * rad, y + Math.sin(a) * rad]);
+    }
+    for (let k = 0; k < n; k++) {
+      const a = pts[k], b = pts[(k + 1) % n];
+      const out: Vec3 = [(a[0] + b[0]) / 2 - x, (a[1] + b[1]) / 2 - y, 0];
+      paintQuad(m, [a[0], a[1], 0], [b[0], b[1], 0], z0, z1, t === 0 ? dark : green, out);
+    }
+    if (t === tiers - 1) { // cap the top so it isn't hollow when seen from above
+      const base = m.vertices.length;
+      m.vertices.push([x, y, z1 + h * 0.06]);
+      m.colors!.push(green);
+      m.uvs!.push([x / 4, y / 4]);
+      for (let k = 0; k < n; k++) {
+        const a = pts[k], b = pts[(k + 1) % n];
+        const bi = m.vertices.length;
+        m.vertices.push([a[0], a[1], z1], [b[0], b[1], z1]);
+        m.colors!.push(green, green);
+        m.uvs!.push([a[0] / 4, a[1] / 4], [b[0] / 4, b[1] / 4]);
+        m.faces.push([base, bi, bi + 1]);
+      }
+    }
+  }
+}
+
+// Treeline outside the barriers, both sides, density 0..1 from the preset.
+// Placed beyond the run-off/wall so trees never intrude on the racing surface
+// or the escape roads; spacing and size jitter keep it from looking planted.
+function buildTrees(
+  m: MeshData, samples: CenterlineSample[], width: number, resolved: ResolvedSample[], density: number,
+): void {
+  if (density <= 0 || samples.length < 4) return;
+  let seed = 20260725;
+  const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const spacing = 26 - 16 * Math.min(1, density); // dense -> closer together
+  for (const side of ['left', 'right'] as const) {
+    let next = rng() * spacing;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const s = samples[i];
+      if (s.dist < next) continue;
+      next = s.dist + spacing * (0.6 + rng() * 0.9);
+      const r = resolved[i][side];
+      const clear = Math.max(r.width, r.wallDist ?? r.width) + 6 + rng() * 22; // beyond the barrier
+      const [lx, ly] = perpLeft(s.heading);
+      const sign = side === 'left' ? 1 : -1;
+      const edge = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
+      const x = edge[0] + lx * clear * sign;
+      const y = edge[1] + ly * clear * sign;
+      paintTree(m, x, y, s.pos[2], 6 + rng() * 9, rng);
+    }
+  }
 }
 
 // Stepped bleacher following the samples on one side of the road. Seats
@@ -189,7 +262,7 @@ export function buildDecor(
   // --- Grandstands: longest straight + outside of turn 1 ------------------
   const straights = spans.filter((s) => s.kind === 'straight')
     .sort((a, b) => (b.endDist - b.startDist) - (a.endDist - a.startDist));
-  if (straights.length) {
+  if (straights.length && (project.decor?.grandstands ?? true)) {
     const main = straights[0];
     const idx = idxOfSpan(main);
     if (idx.length >= 4) {
@@ -208,7 +281,7 @@ export function buildDecor(
       }
     }
   }
-  if (t1) {
+  if (t1 && (project.decor?.grandstands ?? true)) {
     const idx = idxOfSpan(t1);
     if (idx.length >= 4) {
       const outside: 'left' | 'right' = t1.dir === 'left' ? 'right' : 'left';
@@ -301,5 +374,9 @@ export function buildDecor(
     paintQuad(lights, [pl[0], pl[1], 0], [pr[0], pr[1], 0], lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
   }
 
-  return [pole, flag, stand, frame, arch, marker, gantry, lights].filter((m) => m.faces.length > 0);
+  // Treeline outside the barriers (density from the circuit preset).
+  const tree = mesh('DECOR_TREE');
+  buildTrees(tree, samples, width, resolved, project.decor?.trees ?? 0);
+
+  return [pole, flag, stand, frame, arch, marker, gantry, lights, tree].filter((m) => m.faces.length > 0);
 }

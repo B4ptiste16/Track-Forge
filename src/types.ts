@@ -152,6 +152,22 @@ export interface WallGap {
   to: number;
 }
 
+// Surface relief: real circuits aren't flat planes joined edge to edge. Grass
+// sits slightly ABOVE the tarmac (you feel the lip when you put a wheel on it)
+// and a gravel trap is dug slightly BELOW it (the car drops in and bogs down).
+// Both are small — a few cm — and the builder emits the vertical connecting
+// face so the step is visible instead of leaving a hole in the mesh.
+export interface SurfaceDetail {
+  grassHeight: number; // m the grass/dirt verge sits above the track (0 = flush)
+  gravelDepth: number; // m the gravel trap sits below the track (0 = flush)
+}
+
+// Scenery density, set by presets (a bare circuit reads as unfinished).
+export interface DecorConfig {
+  trees: number; // 0 = none .. 1 = dense treeline outside the barriers
+  grandstands: boolean; // stands on the main straight + turn 1
+}
+
 export interface TrackProject {
   meta: {
     name: string;
@@ -159,6 +175,7 @@ export interface TrackProject {
     country: string;
     theme: Theme;
     direction: Direction;
+    preset?: string; // id of the last applied circuit preset (UI memory only)
   };
   road: {
     width: number; // default 12
@@ -183,4 +200,6 @@ export interface TrackProject {
   autoClipRunoff: boolean; // shrink runoff so it never overlaps nearby track
   manualWalls: ManualWall[]; // hand-drawn barriers
   wallGaps: WallGap[]; // stretches where the auto barrier is removed
+  surfaceDetail?: SurfaceDetail; // grass lip / gravel depth (defaults applied on load)
+  decor?: DecorConfig; // scenery density (defaults applied on load)
 }

@@ -35,11 +35,19 @@ VIBRATION_LENGTH=${o.vibLength ?? 0}
     block(0, 'ROAD', { friction: 0.99, valid: 1 }),
     block(1, 'KERBHI', kerb), // longer key first so it matches 1KERBHI before KERB
     block(2, 'KERB', kerb),
-    block(3, 'GRASS', { friction: 0.6, valid: 0, dirt: 1 }),
+    // Grass: slippery and it dirties the tyres, so a trip across it costs you
+    // grip for the next corner too. A light SIN_* gives the verge some texture.
+    block(3, 'GRASS', { friction: 0.6, valid: 0, dirt: 3, sinHeight: 0.012, sinLength: 0.7, vibGain: 0.35, vibLength: 1.0 }),
     block(4, 'PIT', { friction: 0.9, valid: 1 }),
-    block(5, 'SAND', { friction: 0.55, valid: 0, dirt: 1 }),
+    // SAND (gravel trap): the car should PLOUGH, not skate. Low friction with a
+    // strong dirt pickup (tyres cake up and stay slow for a while afterwards)
+    // plus a coarse SIN_* so the surface visibly/physically drags and rumbles —
+    // that, with the raked drag marks baked into the texture, is how AC conveys
+    // "you went through the gravel". AC cannot deform a surface at runtime, so
+    // the trap can't carve a new trail where THIS car went.
+    block(5, 'SAND', { friction: 0.5, valid: 0, dirt: 6, sinHeight: 0.03, sinLength: 0.5, vibGain: 1.0, vibLength: 0.6 }),
     block(6, 'CONCRETE', { friction: 0.96, valid: 0 }),
     block(7, 'TARMAC', { friction: 0.98, valid: 0 }), // paved run-off: grips, but laps don't validate
-    block(8, 'DIRT', { friction: 0.62, valid: 0, dirt: 1 }),
+    block(8, 'DIRT', { friction: 0.62, valid: 0, dirt: 4, sinHeight: 0.02, sinLength: 0.6, vibGain: 0.6, vibLength: 0.8 }),
   ].join('\n');
 }

@@ -11,6 +11,7 @@ import { buildPackage, triggerDownload, downloadProjectJson } from './export/zip
 import { SegmentList } from './components/SegmentList';
 import { SegmentEditor2D } from './components/SegmentEditor2D';
 import { PromptHost, textPrompt } from './prompt';
+import { CIRCUIT_PRESETS, applyPreset, findPreset } from './state/presets';
 import { Preview3D } from './components/Preview3D';
 import { InputsPanel } from './components/InputsPanel';
 import { KerbConfig } from './components/KerbConfig';
@@ -122,6 +123,24 @@ export default function App() {
     }
   };
 
+  // ---- circuit presets -----------------------------------------------------
+  // One pick furnishes the whole circuit (kerbs, run-off, barriers, escape
+  // roads, pit complex, scenery, surface relief, theme). The SHAPE is untouched,
+  // and everything it sets stays editable in the panels afterwards.
+  const applyCircuitPreset = async (id: string) => {
+    const preset = findPreset(id);
+    if (!preset) return;
+    const hasManual = project.buildings.length > 0 || project.manualWalls.length > 0
+      || project.trackside.zones.length > 0;
+    const ok = await desktop?.confirm(
+      `Apply "${preset.name}"?`,
+      `${preset.blurb}\n\nThis re-dresses the circuit — kerbs, run-off, barriers, escape roads, pit complex, scenery and theme. Your track SHAPE (segments, elevation, start/finish, pit entry/exit) is not changed.${hasManual ? '\n\nYour hand-placed buildings, manual walls and trackside zones are kept.' : ''}`,
+      ['Apply preset', 'Cancel'],
+    );
+    if (desktop && ok !== 0) return; // in-browser (no desktop dialog): just apply
+    setProject((p) => applyPreset(p, preset));
+  };
+
   // ---- alternate layouts ---------------------------------------------------
   const layouts = project.layouts ?? [];
   const saveLayoutAs = async () => {
@@ -182,6 +201,17 @@ export default function App() {
           <button onClick={() => { setProject(defaultProject()); setCustomize(false); }}>New</button>
           <button onClick={() => downloadProjectJson(project)}>Save project</button>
           <button onClick={() => fileRef.current?.click()}>Load project</button>
+        </div>
+        <div className="tb-group">
+          <span className="tb-label">Preset</span>
+          <select
+            value={project.meta.preset ?? ''}
+            onChange={(e) => { if (e.target.value) applyCircuitPreset(e.target.value); }}
+            title="Furnish the whole circuit at once: kerbs, run-off, barriers, escape roads, pit complex, scenery and theme. Your shape is never changed."
+          >
+            <option value="">choose a style…</option>
+            {CIRCUIT_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
         </div>
         <div className="tb-group">
           <span className="tb-label">Layout</span>

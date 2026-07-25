@@ -58,6 +58,7 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_MARKER') return '#f2f2f2';
   if (name === 'DECOR_GANTRY') return '#b9bcc2';
   if (name === 'DECOR_LIGHTS') return '#111318';
+  if (name === 'DECOR_TREE') return '#4a6b32'; // foliage base (vertex colours vary each tree)
   return '#808080';
 }
 
@@ -102,6 +103,8 @@ export function defaultProject(): TrackProject {
     autoClipRunoff: true,
     manualWalls: [],
     wallGaps: [],
+    surfaceDetail: { grassHeight: 0.06, gravelDepth: 0.07 },
+    decor: { trees: 0.4, grandstands: true },
   };
 }
 
@@ -190,6 +193,8 @@ export function withDefaults(p: TrackProject): TrackProject {
     autoClipRunoff: p.autoClipRunoff ?? d.autoClipRunoff,
     manualWalls: p.manualWalls ?? [],
     wallGaps: p.wallGaps ?? [],
+    surfaceDetail: p.surfaceDetail ?? d.surfaceDetail,
+    decor: p.decor ?? d.decor,
   };
 }
 
