@@ -169,6 +169,11 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         if (v === null || v < 0) { err('STARTLINE needs a distance in metres'); break; }
         p.startFinishDist = v; ok(`start/finish at ${v} m`); break;
       }
+      case 'SMOOTH': {
+        const v = num(a[0]);
+        if (v === null || v < 0 || v > 1) { err('SMOOTH needs 0..1 (0 = exact points, 1 = very smooth)'); break; }
+        p.elevationSmoothing = v; ok(`elevation smoothing = ${v}`); break;
+      }
       case 'ELEVATION': {
         const d = num(a[0]), h = num(a[1]);
         if (d === null || h === null) { err('ELEVATION needs <dist_m> <height_m>'); break; }
@@ -418,6 +423,9 @@ SHAPE — the lap, in order. Use CLEAR first to start from nothing.
   CORNER left|right <radius_m> <angle_deg>     radius >= 5, angle 1..180
   STARTLINE <m>                   where the start/finish line sits
   ELEVATION <dist_m> <height_m>   repeat for as many points as you like
+  SMOOTH <0..1>                   ease the transitions between elevation points
+      Sparse points make the track ramp at each one. 0.3-0.6 is usually right.
+      Real circuits sit around 3-10% gradient; the app shows the steepest.
 
 CLOSING THE LOOP — DO THIS MATH BEFORE YOU WRITE THE SHEET
 A circuit must come back to where it started. The segments are laid end to end

@@ -1,7 +1,7 @@
 import type { TrackProject, StripCfg, RunoffType } from '../types';
 import type { BuiltTrack, MeshData } from './types';
 import { buildCenterline, computeClosure } from './centerline';
-import { makeHeightFn } from './elevation';
+import { makeHeightFn, smoothHeights } from './elevation';
 import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
@@ -43,9 +43,17 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const overlaps = detectOverlaps(samples);
   const manualH = makeHeightFn(project.elevation);
   const bridgeH = makeBridgeHeightFn(overlaps, project.bridge, project.road.width);
-  for (const s of samples) s.pos[2] = manualH(s.dist) + bridgeH(s.dist);
-
+  // Smooth the HAND-SET profile only. Bridge ramps are deliberate shapes with a
+  // clearance to hit, so they are added after smoothing and left alone.
+  // Closure is a question about XY and heading, so it is already answerable
+  // before any height is applied — and the smoother needs it to decide whether
+  // to wrap its window across the start/finish line.
   const closure = computeClosure(samples);
+  const rawH = samples.map((s) => manualH(s.dist));
+  const smoothH = smoothHeights(rawH, totalLength, project.elevationSmoothing ?? 0, closure.closed);
+  for (let i = 0; i < samples.length; i++) {
+    samples[i].pos[2] = smoothH[i] + bridgeH(samples[i].dist);
+  }
 
   const kerbInfo = computeKerbInfo(samples, spans, project.corners, project.road.defaultKerb);
   const pitInfo = computePitInfo(samples, project);

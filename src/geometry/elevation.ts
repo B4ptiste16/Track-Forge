@@ -50,3 +50,57 @@ export function applyElevation(samples: CenterlineSample[], points: ElevationPoi
     s.pos[2] = h(s.dist);
   }
 }
+
+/**
+ * Smooth a sampled height profile.
+ *
+ * Elevation points are sparse — a handful of heights along a 5 km lap — and the
+ * spline through them can arrive at each one steeply, so a profile that reads
+ * as gentle in the list drives like a series of ramps. This flattens the
+ * transitions without moving the points themselves: heights still pass close to
+ * what was asked for, they just get there gradually.
+ *
+ * `amount` 0 = untouched, 1 = heavily smoothed (a ~400 m rolling window).
+ * Two box passes approximate a Gaussian, which is what keeps the result free of
+ * the corners a single pass leaves behind.
+ * `closed` wraps the window across the start/finish line so a lap has no step
+ * where it joins back up.
+ */
+export function smoothHeights(
+  heights: number[], totalLength: number, amount: number, closed: boolean,
+): number[] {
+  const n = heights.length;
+  if (n < 3 || amount <= 0) return heights;
+  const windowM = 20 + Math.min(1, amount) * 380; // 20 m .. 400 m
+  const spacing = Math.max(0.5, totalLength / n);
+  const half = Math.max(1, Math.round(windowM / 2 / spacing));
+  let cur = heights;
+  for (let pass = 0; pass < 2; pass++) {
+    const out = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      let sum = 0, cnt = 0;
+      for (let k = -half; k <= half; k++) {
+        let j = i + k;
+        if (closed) j = ((j % n) + n) % n;
+        else if (j < 0 || j >= n) continue;
+        sum += cur[j]; cnt++;
+      }
+      out[i] = sum / cnt;
+    }
+    cur = out;
+  }
+  return cur;
+}
+
+/** Steepest gradient in the profile, as a percentage — what "too steep" means
+ *  objectively. Real circuits sit around 3-10%; Eau Rouge is about 17%. */
+export function maxGradientPct(heights: number[], totalLength: number): number {
+  const n = heights.length;
+  if (n < 2) return 0;
+  const spacing = Math.max(0.5, totalLength / n);
+  let worst = 0;
+  for (let i = 1; i < n; i++) {
+    worst = Math.max(worst, Math.abs(heights[i] - heights[i - 1]) / spacing);
+  }
+  return worst * 100;
+}

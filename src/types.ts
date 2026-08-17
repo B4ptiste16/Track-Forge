@@ -188,6 +188,10 @@ export interface TrackProject {
   elevation: ElevationPoint[];
   corners: CornerConfig[]; // one per corner segment
   startFinishDist: number; // position of S/F line along centerline (m)
+  // 0 = use the elevation points exactly; 1 = heavily smoothed (~400 m window).
+  // Sparse points can make a gentle-looking profile drive like a set of ramps;
+  // this eases the transitions without moving the points.
+  elevationSmoothing?: number;
   grid: {
     pits: number; // pit box count
     starts: number; // grid slot count

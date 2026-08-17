@@ -11,23 +11,83 @@ export interface SideOffset {
 // A big flat grass plane under the whole track so there are never holes to fall
 // through (inside corners, beyond the runoff, etc.). It sits just below the
 // lowest point so the road/runoff always win the physics raycast (no quicksand).
-export function buildGroundPlane(samples: CenterlineSample[], margin = 80): MeshData {
+export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detail = 64): MeshData {
   if (samples.length < 2) return { name: '1GRASS', vertices: [], faces: [] };
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, minZ = Infinity;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of samples) {
     minX = Math.min(minX, s.pos[0]); maxX = Math.max(maxX, s.pos[0]);
     minY = Math.min(minY, s.pos[1]); maxY = Math.max(maxY, s.pos[1]);
-    minZ = Math.min(minZ, s.pos[2]);
   }
-  const z = minZ - 0.1;
-  const vertices: Vec3[] = [
-    [minX - margin, minY - margin, z],
-    [maxX + margin, minY - margin, z],
-    [maxX + margin, maxY + margin, z],
-    [minX - margin, maxY + margin, z],
-  ];
+
+  // TERRAIN THAT FOLLOWS THE CIRCUIT.
+  // This used to be one flat quad at the track's LOWEST point. As soon as a
+  // track had real elevation that left a cliff around the whole circuit — a lap
+  // climbing 10 m meant a 10 m drop off the edge of the run-off, everywhere.
+  // Instead build a height field: every grid point takes an inverse-distance
+  // weighted blend of the track's own heights, so the ground meets the run-off
+  // at the right level and rolls away naturally from there.
+  const x0 = minX - margin, x1 = maxX + margin;
+  const y0 = minY - margin, y1 = maxY + margin;
+  const nx = Math.max(8, detail), ny = Math.max(8, detail);
+  const dx = (x1 - x0) / (nx - 1), dy = (y1 - y0) / (ny - 1);
+
+  // Sampling every centreline point would be far more resolution than the grid
+  // can show, so thin them out — the weighting is smooth either way.
+  const stride = Math.max(1, Math.floor(samples.length / 500));
+  const ref: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i < samples.length; i += stride) {
+    ref.push({ x: samples[i].pos[0], y: samples[i].pos[1], z: samples[i].pos[2] });
+  }
+
+  let h = new Float64Array(nx * ny);
+  for (let j = 0; j < ny; j++) {
+    const y = y0 + j * dy;
+    for (let i = 0; i < nx; i++) {
+      const x = x0 + i * dx;
+      let wsum = 0, hsum = 0;
+      for (const r of ref) {
+        const ddx = x - r.x, ddy = y - r.y;
+        // +1 keeps this finite right on top of a sample; the square falloff
+        // makes nearby track dominate, so the ground hugs it.
+        const w = 1 / (ddx * ddx + ddy * ddy + 1);
+        wsum += w; hsum += w * r.z;
+      }
+      h[j * nx + i] = wsum > 0 ? hsum / wsum : 0;
+    }
+  }
+  // A couple of box passes so the field rolls instead of faceting.
+  for (let pass = 0; pass < 2; pass++) {
+    const out = new Float64Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        let sum = 0, cnt = 0;
+        for (let b = -1; b <= 1; b++) {
+          for (let a = -1; a <= 1; a++) {
+            const ii = i + a, jj = j + b;
+            if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+            sum += h[jj * nx + ii]; cnt++;
+          }
+        }
+        out[j * nx + i] = sum / cnt;
+      }
+    }
+    h = out;
+  }
+
+  const vertices: Vec3[] = [];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      // Sit a touch under the run-off so the aprons always win the depth test.
+      vertices.push([x0 + i * dx, y0 + j * dy, h[j * nx + i] - 0.12]);
+    }
+  }
   const faces: [number, number, number][] = [];
-  addQuadUp(vertices, faces, 0, 1, 2, 3);
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx + 1, d = a + nx;
+      addQuadUp(vertices, faces, a, b, c, d);
+    }
+  }
   return { name: '1GRASS', vertices, faces };
 }
 

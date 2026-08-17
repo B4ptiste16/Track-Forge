@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { TrackProject, Theme, Direction, KerbType, ElevationPoint } from '../types';
 import type { BuiltTrack } from '../geometry';
+import { maxGradientPct } from '../geometry/elevation';
 
 interface Props {
   project: TrackProject;
@@ -12,6 +13,8 @@ const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tal
 
 export function InputsPanel({ project, built, onChange }: Props) {
   const total = Math.max(1, Math.round(built.totalLength));
+  // Measured off the BUILT profile, so it reflects smoothing as you drag it.
+  const gradePct = maxGradientPct(built.centerline.map((c) => c.pos[2]), built.totalLength);
   const [elevDist, setElevDist] = useState(0);
   const [elevHeight, setElevHeight] = useState(0);
 
@@ -85,6 +88,18 @@ export function InputsPanel({ project, built, onChange }: Props) {
             onChange={(e) => setElevHeight(Number(e.target.value))} /> m
         </label>
         <button onClick={setElevationPoint}>Set height here</button>
+        <label title="Ease the transitions between elevation points. The points stay where they are — the track just takes longer to get between them, instead of ramping straight at each one.">
+          Smoothing: {Math.round((project.elevationSmoothing ?? 0) * 100)}%
+          <input type="range" min={0} max={1} step={0.05}
+            value={project.elevationSmoothing ?? 0}
+            onChange={(e) => onChange({ ...project, elevationSmoothing: Number(e.target.value) })} />
+        </label>
+        <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.45 }}>
+          Steepest gradient: <b>{gradePct.toFixed(1)}%</b>{' '}
+          {gradePct > 17 ? '— steeper than Eau Rouge; raise smoothing'
+            : gradePct > 10 ? '— very steep for a circuit'
+              : gradePct > 0 ? '— realistic (real circuits are 3-10%)' : ''}
+        </div>
         <ul className="mini-list">
           {project.elevation.length === 0 && <li className="muted">Flat (no points)</li>}
           {project.elevation.map((p) => (
