@@ -434,3 +434,25 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* --- instruction-sheet builder ------------------------------------------- */
+.instr-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 18px; width: min(860px, 94vw); max-height: 88vh; overflow: auto;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45); }
+.instr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.instr-intro { font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
+.instr-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.instr-actions .spacer { flex: 1; }
+.instr-text { width: 100%; min-height: 280px; box-sizing: border-box; padding: 10px 12px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  resize: vertical; white-space: pre; }
+.instr-result { margin-top: 10px; font-size: 12px; }
+.instr-ok { color: #6cc06c; font-weight: 600; }
+.instr-warn { color: #e6a552; font-weight: 600; }
+.instr-errs { margin: 6px 0 0; padding-left: 18px; color: #e6a552; }
+.instr-errs li, .instr-log li { margin: 2px 0; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.instr-log { margin: 6px 0 0; padding-left: 18px; color: var(--muted); max-height: 220px; overflow: auto; }
+.instr-spec { margin-top: 12px; }
+.instr-spec pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; font-size: 11.5px; line-height: 1.45; overflow: auto; max-height: 320px; }

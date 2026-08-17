@@ -11,6 +11,7 @@ import { buildPackage, triggerDownload, downloadProjectJson } from './export/zip
 import { SegmentList } from './components/SegmentList';
 import { SegmentEditor2D } from './components/SegmentEditor2D';
 import { PromptHost, textPrompt } from './prompt';
+import { InstructionsPanel } from './components/InstructionsPanel';
 import { CIRCUIT_PRESETS, applyPreset, findPreset } from './state/presets';
 import { Preview3D } from './components/Preview3D';
 import { InputsPanel } from './components/InputsPanel';
@@ -28,6 +29,7 @@ type View = 'home' | 'build' | 'train';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
+  const [showInstr, setShowInstr] = useState(false);
   // Height share of the 2D outline editor vs the 3D preview (drag the divider).
   const [editFrac, setEditFrac] = useState<number>(() => {
     const v = Number(localStorage.getItem('editFrac'));
@@ -194,6 +196,13 @@ export default function App() {
   return (
     <div className="app">
       <PromptHost />
+      {showInstr && (
+        <InstructionsPanel
+          project={project}
+          onClose={() => setShowInstr(false)}
+          onBuild={(np) => { setProject(withDefaults(np)); setShowInstr(false); }}
+        />
+      )}
       <header className="toolbar">
         <button onClick={() => setView('home')} title="Back to home">⌂</button>
         <div className="brand">🏁 AC BAPTOU</div>
@@ -224,6 +233,7 @@ export default function App() {
             {layouts.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
           </select>
           <button onClick={saveLayoutAs} title="Save the current shape as a named layout">Save layout</button>
+          <button onClick={() => setShowInstr(true)} title="Build a whole circuit from a written list of commands (AI-generatable)">📝 From instructions</button>
           {layouts.length > 0 && (
             <button
               className="danger"
