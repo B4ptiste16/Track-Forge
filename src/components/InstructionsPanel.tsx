@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import type { TrackProject } from '../types';
 import { INSTRUCTION_SPEC, applyInstructions } from '../state/instructions';
+import { buildTrack } from '../geometry';
 
 export function InstructionsPanel({
   project, onBuild, onClose,
@@ -13,12 +14,21 @@ export function InstructionsPanel({
   onClose: () => void;
 }) {
   const [text, setText] = useState('');
-  const [result, setResult] = useState<{ log: string[]; errors: string[]; applied: number } | null>(null);
+  const [result, setResult] = useState<{ log: string[]; errors: string[]; applied: number; closed: boolean; gap: number; headingOff: number; length: number } | null>(null);
   const [copied, setCopied] = useState('');
 
   const preview = () => {
     const r = applyInstructions(project, text);
-    setResult({ log: r.log, errors: r.errors, applied: r.applied });
+    // Report whether the lap actually CLOSES. This is the thing a written sheet
+    // gets wrong most often — the radii/angles/straights have to bring the track
+    // back to its start, and you cannot see that from the text.
+    let closed = false, gap = 0, headingOff = 0, length = 0;
+    try {
+      const b = buildTrack(r.project);
+      closed = b.closure.closed; gap = b.closure.gap;
+      headingOff = b.closure.headingOff; length = b.totalLength;
+    } catch { /* unbuildable shape — the errors below will say why */ }
+    setResult({ log: r.log, errors: r.errors, applied: r.applied, closed, gap, headingOff, length });
     return r;
   };
   const build = () => {
@@ -69,6 +79,20 @@ export function InstructionsPanel({
               {result.applied} command{result.applied === 1 ? '' : 's'} applied
               {result.errors.length > 0 && ` · ${result.errors.length} line${result.errors.length === 1 ? '' : 's'} skipped`}
             </div>
+            {result.length > 0 && (
+              <div className={result.closed ? 'instr-ok' : 'instr-warn'}>
+                {result.closed
+                  ? `✓ loop closes · ${(result.length / 1000).toFixed(2)} km`
+                  : `✕ loop does NOT close · ${(result.length / 1000).toFixed(2)} km, ends ${result.gap.toFixed(0)} m from the start, heading off ${result.headingOff.toFixed(0)}°`}
+              </div>
+            )}
+            {!result.closed && result.length > 0 && (
+              <div className="muted instr-fixhint">
+                Give this back to the AI: the turn angles must sum to ±360° and the segment
+                positions must return to (0,0). Adjusting the last few straight lengths is
+                usually enough.
+              </div>
+            )}
             {result.errors.length > 0 && (
               <ul className="instr-errs">{result.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
             )}

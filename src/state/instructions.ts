@@ -418,7 +418,38 @@ SHAPE — the lap, in order. Use CLEAR first to start from nothing.
   CORNER left|right <radius_m> <angle_deg>     radius >= 5, angle 1..180
   STARTLINE <m>                   where the start/finish line sits
   ELEVATION <dist_m> <height_m>   repeat for as many points as you like
-  For a circuit that closes, the left and right turn angles should total 360.
+
+CLOSING THE LOOP — DO THIS MATH BEFORE YOU WRITE THE SHEET
+A circuit must come back to where it started. The segments are laid end to end
+from (0,0) heading 0 deg, so the numbers you choose ARE the geometry: get them
+wrong and the lap ends hundreds of metres from the start line, which cannot be
+fixed afterwards without redoing the shape. Two conditions must BOTH hold.
+
+  1. HEADING. Signed turn angles must sum to exactly +/-360.
+     Count right turns as + and left turns as - (or the reverse; be consistent).
+       sum(right angles) - sum(left angles) = 360     -> a clockwise lap
+     Being 10 deg out leaves the start straight pointing the wrong way.
+
+  2. POSITION. The lap must also RETURN to (0,0). Track heading and position as
+     you go, starting at x=0, y=0, heading=0:
+       STRAIGHT L      x += L*cos(heading);  y += L*sin(heading)
+       CORNER d R A    chord c = 2*R*sin(A/2)
+                       turn   t = +A for a right turn, -A for a left turn
+                       x += c*cos(heading + t/2)
+                       y += c*sin(heading + t/2)
+                       heading += t
+     (angles in degrees -> convert to radians for sin/cos)
+     After the last segment x and y must both be ~0 (within a few metres).
+
+  HOW TO ACTUALLY DO IT: sketch the circuit, pick the corner radii and angles
+  first (they set the character), then SOLVE for the straight lengths that close
+  it — straights are the easy free variables. Adjust the last two or three
+  straights, and if needed one radius, until x and y come back to 0.
+  Opposite sides of a lap usually run anti-parallel, so the straights on one
+  side must total roughly the same as those on the other.
+
+  The app reports the closing gap after every build, so check it and correct the
+  numbers if it is not close to 0.
 
 PER-CORNER (corner_index counts corners only, from 0, in lap order)
   CORNERKERB <i> <entry> <apex> <exit>    kerb types as above
