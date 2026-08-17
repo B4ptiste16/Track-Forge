@@ -475,3 +475,7 @@
 .brush-bar select { min-width: 120px; }
 .brush-bar input[type='number'] { width: 52px; }
 .brush-bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); }
+.preview-vscale { pointer-events: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #e8ecf5; background: rgba(0,0,0,0.45); padding: 3px 8px;
+  border-radius: 5px; white-space: nowrap; }
+.preview-vscale input[type='range'] { width: 90px; }

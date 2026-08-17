@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { TrackProject } from '../types';
 import type { BuiltTrack, MeshData } from '../geometry';
 import { THEME_PALETTES, WALL_STYLE_COLORS, meshColor } from '../state/project';
 
-function toGeometry(mesh: MeshData): THREE.BufferGeometry {
+// VERTICAL EXAGGERATION (preview only — the exported track is never changed).
+// A real circuit is far wider than it is tall: Monza climbs about 8 m across a
+// 2.3 km site, which at fit-the-whole-track zoom is roughly THREE PIXELS. The
+// elevation was always being built, it just could not be seen, which reads as
+// "elevation doesn't work". Scaling height for display is how terrain editors
+// have always solved this.
+function toGeometry(mesh: MeshData, vScale = 1): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(mesh.vertices.length * 3);
   mesh.vertices.forEach((v, i) => {
-    pos[i * 3] = v[0]; pos[i * 3 + 1] = v[1]; pos[i * 3 + 2] = v[2];
+    pos[i * 3] = v[0]; pos[i * 3 + 1] = v[1]; pos[i * 3 + 2] = v[2] * vScale;
   });
   const idx = new Uint32Array(mesh.faces.length * 3);
   mesh.faces.forEach((f, i) => {
@@ -34,6 +40,9 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
   const trackGroupRef = useRef<THREE.Group>(null);
   const rendererRef = useRef<THREE.WebGLRenderer>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
+  const [vScale, setVScale] = useState(1);
+  const vScaleRef = useRef(1);
+  vScaleRef.current = vScale;
   const controlsRef = useRef<OrbitControls>(null);
   const builtRef = useRef(built);
   builtRef.current = built;
@@ -238,7 +247,7 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
         roughness: 0.95,
         side,
       });
-      group.add(new THREE.Mesh(toGeometry(mesh), mat));
+      group.add(new THREE.Mesh(toGeometry(mesh, vScaleRef.current), mat));
     }
 
     for (const e of built.empties) {
@@ -256,12 +265,17 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
       frameView();
       hasFramedRef.current = true;
     }
-  }, [built, project.meta.theme, frameView]);
+  }, [built, project.meta.theme, frameView, vScale]);
 
   return (
     <div className="preview3d" ref={mountRef}>
       <div className="preview-overlay">
         <button onClick={frameView} title="Fit the whole track in view">Reset view</button>
+        <label className="preview-vscale" title="Stretch height in the PREVIEW ONLY so gradients are visible. A circuit is far wider than it is tall — real elevation is only a few pixels at full-track zoom. The exported track is unaffected.">
+          height ×{vScale}
+          <input type="range" min={1} max={25} step={1} value={vScale}
+            onChange={(e) => setVScale(Number(e.target.value))} />
+        </label>
         <span className="preview-hint" title="Left-drag rotate · Right-drag pan · Scroll zoom (toward cursor) · Double-click to recenter">
           drag&nbsp;rotate · RMB&nbsp;pan · scroll&nbsp;zoom · dbl-click&nbsp;recenter
         </span>
