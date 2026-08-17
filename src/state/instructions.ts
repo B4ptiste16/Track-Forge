@@ -15,6 +15,7 @@ import type {
   StripTexture, Theme, TrackProject, WallStyle,
 } from '../types';
 import { newSegId, newZoneId, syncCorners } from './project';
+import { buildCenterline } from '../geometry';
 import { CIRCUIT_PRESETS, applyPreset } from './presets';
 
 export interface InstructionResult {
@@ -241,6 +242,51 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         ok(`zone ${which} ${from}-${to} m = ${tex} ${w} m`); break;
       }
 
+      // ---- run-off placed BY CORNER ---------------------------------------
+      // ZONE needs distances along the lap, which an AI writing a sheet has no
+      // way to know — it would have to integrate every segment length first.
+      // RUNOFF takes a corner number instead and works out the distance span
+      // itself, which is how you actually think about it: "gravel on the
+      // outside of turn 3". Defaults to the OUTSIDE of the corner, because that
+      // is the side a car leaves the track on.
+      case 'RUNOFF': {
+        const i = num(a[0]);
+        const tex = oneOf(a[1], TEXTURES);
+        const w = num(a[2]);
+        if (i === null || !tex || w === null) {
+          err(`RUNOFF needs <corner_index> <${TEXTURES.join('|')}> <width_m> [outside|inside|both] [wall <dist_m>]`);
+          break;
+        }
+        if (!corner(i)) break;
+        const { spans } = buildCenterline(segs);
+        const span = spans.find((s) => s.kind === 'corner' && s.cornerIndex === i);
+        if (!span) { err(`corner ${i} has no span (is the shape built?)`); break; }
+        // A car runs wide on the OUTSIDE — the opposite hand to the turn.
+        const outside: 'left' | 'right' = span.dir === 'left' ? 'right' : 'left';
+        const where = oneOf(a[3], ['outside', 'inside', 'both'] as const) ?? 'outside';
+        const side: 'left' | 'right' | 'both' =
+          where === 'both' ? 'both'
+            : where === 'inside' ? (outside === 'left' ? 'right' : 'left')
+              : outside;
+        // Reach a little before and after the corner: the run-off a driver needs
+        // starts in the braking zone and continues past the exit.
+        const pad = Math.max(15, (span.endDist - span.startDist) * 0.35);
+        const wallIdx = a.findIndex((t) => t.toLowerCase() === 'wall');
+        p.trackside = {
+          ...p.trackside,
+          zones: [...p.trackside.zones, {
+            id: newZoneId(), side,
+            from: Math.max(0, span.startDist - pad),
+            to: span.endDist + pad,
+            texture: tex, width: w,
+            wall: wallIdx >= 0,
+            wallDist: wallIdx >= 0 ? (num(a[wallIdx + 1]) ?? w) : undefined,
+          }],
+        };
+        ok(`corner ${i}: ${tex} ${w} m on the ${side} (${Math.round(span.startDist - pad)}-${Math.round(span.endDist + pad)} m)`);
+        break;
+      }
+
       // ---- barriers -------------------------------------------------------
       case 'WALLS': {
         const on = onOff(a[0]);
@@ -376,12 +422,21 @@ SHAPE — the lap, in order. Use CLEAR first to start from nothing.
 
 PER-CORNER (corner_index counts corners only, from 0, in lap order)
   CORNERKERB <i> <entry> <apex> <exit>    kerb types as above
-  ESCAPE <i> none|tarmac|sausage|slalom|gravel
   INSIDE <i> grass|gravel|concrete
 
-TRACKSIDE
+TRACKSIDE / RUN-OFF
   SIDE left|right|both <grass|gravel|gravel_spaced|concrete|tarmac|dirt> <width_m> [wall <dist_m>]
+  RUNOFF <corner_index> <texture> <width_m> [outside|inside|both] [wall <dist_m>]
+      Easiest way to place run-off: it works out the corner's position for you
+      and defaults to the OUTSIDE (the side a car runs wide onto).
+      e.g.  RUNOFF 2 gravel 20            gravel trap outside turn 2
+            RUNOFF 5 tarmac 25 wall 30    paved run-off + barrier at 30 m
   ZONE left|right|both <from_m> <to_m> <texture> <width_m> [wall <dist_m>]
+      Only if you want an exact distance range along the lap.
+
+ESCAPE ROADS — place them ONLY where a car would really overshoot: the end of a
+long straight, or a slow chicane. Do not put one on every corner.
+  ESCAPE <corner_index> none|tarmac|sausage|slalom|gravel
 
 BARRIERS
   WALLS on|off [height_m] [solid|armco|tecpro|blocks|hay]
@@ -415,7 +470,9 @@ EXAMPLE
   STRAIGHT 400
   CORNER right 35 60
   STRAIGHT 180
-  ESCAPE 0 gravel
+  RUNOFF 0 gravel 20          # gravel trap outside the first corner
+  RUNOFF 1 tarmac 22 wall 26  # paved run-off + barrier
+  ESCAPE 0 tarmac             # only where a car would really overshoot
   CORNERKERB 1 flat combo flat
   PITLANE 60 400 12
   PITBOXES 24

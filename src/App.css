@@ -471,3 +471,7 @@
 .lib-empty h3 { margin: 0 0 8px; }
 .lib-empty p { font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
 .autosave-note { font-size: 11.5px; white-space: nowrap; }
+.brush-bar { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.brush-bar select { min-width: 120px; }
+.brush-bar input[type='number'] { width: 52px; }
+.brush-bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); }

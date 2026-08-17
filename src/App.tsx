@@ -195,8 +195,11 @@ export default function App() {
   };
 
   // ---- 2D editor callbacks ---------------------------------------------------
-  const onZonePicked = (from: number, to: number, side: 'left' | 'right') => {
-    const base = project.trackside[side];
+  const onZonePicked = (from: number, to: number, side: 'left' | 'right', brush?: import('./types').StripCfg) => {
+    // Use what the brush is set to; falling back to the side default would make
+    // a painted strip identical to its surroundings (i.e. look like nothing
+    // happened), which is exactly how this used to behave.
+    const base = brush ?? project.trackside[side];
     setProject({
       ...project,
       trackside: {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TrackProject, Segment, ManualWall, CornerConfig } from '../types';
+import type { TrackProject, Segment, ManualWall, CornerConfig, StripCfg, StripTexture } from '../types';
 import type { BuiltTrack } from '../geometry';
 import { perpLeft } from '../geometry';
 import { escapeControlPoints, escapeTypeOf } from '../geometry/escape';
@@ -14,7 +14,7 @@ interface Props {
   onSegmentsChange: (segs: Segment[]) => void;
   onCornersChange: (corners: CornerConfig[]) => void;
   onManualWallsChange: (walls: ManualWall[]) => void;
-  onZonePicked: (from: number, to: number, side: 'left' | 'right') => void;
+  onZonePicked: (from: number, to: number, side: 'left' | 'right', brush: StripCfg) => void;
   onPlaceBuilding: (x: number, y: number) => void;
 }
 
@@ -49,6 +49,13 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
   const [mode, setMode] = useState<EditorMode>('shape');
   const [draft, setDraft] = useState<[number, number][]>([]);
   const [zoneAnchor, setZoneAnchor] = useState<{ dist: number; side: 'left' | 'right' } | null>(null);
+  // The BRUSH: what a painted strip is made of. Without this the painted zone
+  // inherited the side's default, so you painted a stretch and nothing looked
+  // any different — the feature appeared broken. Pick surface + width, then
+  // click twice along the track to lay it down.
+  const [brushTex, setBrushTex] = useState<StripTexture>('gravel');
+  const [brushW, setBrushW] = useState(16);
+  const [brushWall, setBrushWall] = useState(false);
   const [selected, setSelected] = useState<number | null>(null); // segIndex being edited inline
   const [lockRest, setLockRest] = useState(true); // radius drags keep the rest of the track in place
   const [resizeTick, setResizeTick] = useState(0);
@@ -363,7 +370,7 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
       if (!zoneAnchor) {
         setZoneAnchor(hit);
       } else {
-        onZonePicked(Math.min(zoneAnchor.dist, hit.dist), Math.max(zoneAnchor.dist, hit.dist), zoneAnchor.side);
+        onZonePicked(Math.min(zoneAnchor.dist, hit.dist), Math.max(zoneAnchor.dist, hit.dist), zoneAnchor.side, { texture: brushTex, width: brushW, wall: brushWall, wallDist: brushWall ? brushW + 4 : undefined });
         setZoneAnchor(null);
       }
       ev.preventDefault();
@@ -565,6 +572,27 @@ export function SegmentEditor2D({ project, built, onCloseLoop, onSegmentsChange,
           <button className={mode === 'wall' ? 'active' : ''} onClick={() => { setMode('wall'); setZoneAnchor(null); }}>Draw wall</button>
           <button className={mode === 'building' ? 'active' : ''} onClick={() => { setMode('building'); setDraft([]); setZoneAnchor(null); }}>Place building</button>
         </span>
+        {mode === 'zone' && (
+          <span className="brush-bar">
+            <span className="tb-label">paint</span>
+            <select value={brushTex} onChange={(e) => setBrushTex(e.target.value as StripTexture)}>
+              <option value="grass">grass</option>
+              <option value="gravel">gravel</option>
+              <option value="gravel_spaced">gravel (spaced)</option>
+              <option value="concrete">concrete</option>
+              <option value="tarmac">tarmac</option>
+              <option value="dirt">dirt</option>
+            </select>
+            <label>w
+              <input type="number" min={1} max={80} step={1} value={brushW}
+                onChange={(e) => setBrushW(Math.max(1, Number(e.target.value)))} />
+            </label>
+            <label title="Put a barrier at the outer edge of the painted strip">
+              <input type="checkbox" checked={brushWall} onChange={(e) => setBrushWall(e.target.checked)} /> wall
+            </label>
+            <span className="muted">{zoneAnchor ? 'click the END of the stretch' : 'click the START of the stretch'}</span>
+          </span>
+        )}
         {mode === 'shape' && (
           <>
             <span className={c.closed ? 'ok' : 'warn'}>
