@@ -106,6 +106,70 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+
+// --- TRACK LIBRARY ---------------------------------------------------------
+// Every track the user builds lives in userData/tracks/<id>.json, so the app
+// opens with a list of their circuits instead of an empty page and a file
+// dialog. A Monza-sized layout takes many sessions; re-uploading a .json each
+// time was the single biggest thing standing between "I made a track" and "I
+// kept working on it". Autosave writes here on a debounce from the renderer.
+function tracksDir() {
+  const d = path.join(app.getPath('userData'), 'tracks');
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+const trackFile = (id) => path.join(tracksDir(), `${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+
+ipcMain.handle('tracks:list', () => {
+  try {
+    return fs.readdirSync(tracksDir())
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => {
+        const full = path.join(tracksDir(), f);
+        const st = fs.statSync(full);
+        let name = f.replace(/\.json$/, ''), segments = 0, length = 0;
+        try {
+          const j = JSON.parse(fs.readFileSync(full, 'utf8'));
+          name = j?.meta?.name || name;
+          segments = (j?.segments || []).length;
+          length = j?.__length || 0;
+        } catch { /* unreadable: still list it so it can be deleted */ }
+        return { id: f.replace(/\.json$/, ''), name, segments, length, savedAt: st.mtimeMs };
+      })
+      .sort((a, b) => b.savedAt - a.savedAt);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('tracks:load', (_e, { id }) => {
+  try {
+    return { ok: true, project: JSON.parse(fs.readFileSync(trackFile(id), 'utf8')) };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Atomic: a crash mid-autosave must never leave a half-written track behind.
+ipcMain.handle('tracks:save', (_e, { id, project }) => {
+  try {
+    const dst = trackFile(id);
+    const tmp = dst + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(project, null, 2));
+    fs.renameSync(tmp, dst);
+    return { ok: true, id, savedAt: Date.now() };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+ipcMain.handle('tracks:delete', (_e, { id }) => {
+  try { fs.rmSync(trackFile(id), { force: true }); return { ok: true }; }
+  catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+});
+
+ipcMain.handle('tracks:reveal', () => { shell.openPath(tracksDir()); return { ok: true }; });
+
 ipcMain.handle('settings:get', () => loadSettings());
 ipcMain.handle('settings:set', (_e, s) => {
   saveSettings(s);

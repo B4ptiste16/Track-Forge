@@ -130,12 +130,12 @@ export function findPreset(id: string): CircuitPreset | undefined {
   return CIRCUIT_PRESETS.find((p) => p.id === id);
 }
 
-/** Should this corner get an escape road? Only the corners that actually need
- *  one — slower/tighter turns where a car would overshoot — so a preset doesn't
- *  litter escape roads down every gentle bend. */
-function wantsEscape(c: CornerConfig, radius: number): boolean {
-  return radius <= 90 && Math.abs(c.cornerIndex) >= 0; // tight-to-medium corners
-}
+// NOTE: presets no longer place escape roads. The old rule ("every corner under
+// a 90 m radius") fired on nearly every corner of a real circuit — recreating
+// Monza produced escape roads sprayed down the whole lap. Escape roads are a
+// PLACED feature now: add them per corner in the Kerbs panel, or from an
+// instruction sheet with `ESCAPE <corner> <type>`. A preset furnishes surfaces,
+// barriers and scenery; it does not guess where a car will run off.
 
 /**
  * Apply a preset's furnishing to a project. Returns a NEW project; the track
@@ -145,12 +145,6 @@ function wantsEscape(c: CornerConfig, radius: number): boolean {
  * throws away bespoke work.
  */
 export function applyPreset(p: TrackProject, preset: CircuitPreset, keepManual = true): TrackProject {
-  // corner radii, to decide which corners deserve an escape road
-  const radii = new Map<number, number>();
-  let ci = 0;
-  for (const s of p.segments) {
-    if (s.kind === 'corner') radii.set(ci++, s.radius);
-  }
   const corners: CornerConfig[] = p.corners.map((c) => ({
     ...c,
     entry: preset.kerb.entry,
@@ -160,9 +154,8 @@ export function applyPreset(p: TrackProject, preset: CircuitPreset, keepManual =
     apexW: preset.kerb.width,
     exitW: preset.kerb.width,
     insideSurface: preset.insideSurface,
-    escapeType: preset.escape !== 'none' && wantsEscape(c, radii.get(c.cornerIndex) ?? 999)
-      ? preset.escape
-      : 'none',
+    // keep whatever escape road the user placed on this corner (see note above)
+    escapeType: c.escapeType,
     // a hand-dragged escape shape is bespoke work — keep it
     escapeNodes: keepManual ? c.escapeNodes : undefined,
   }));

@@ -4,6 +4,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // knows it's running as the desktop build (vs a plain browser).
 contextBridge.exposeInMainWorld('desktop', {
   isDesktop: true,
+  tracksList: () => ipcRenderer.invoke('tracks:list'),
+  trackLoad: (id) => ipcRenderer.invoke('tracks:load', { id }),
+  trackSave: (id, project) => ipcRenderer.invoke('tracks:save', { id, project }),
+  trackDelete: (id) => ipcRenderer.invoke('tracks:delete', { id }),
+  tracksReveal: () => ipcRenderer.invoke('tracks:reveal'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),

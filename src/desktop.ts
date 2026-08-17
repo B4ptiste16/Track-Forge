@@ -1,3 +1,4 @@
+import type { TrackProject } from './types';
 // Typed accessor for the Electron bridge exposed by electron/preload.cjs.
 // Undefined when running as a plain website.
 
@@ -33,6 +34,12 @@ export interface DesktopApi {
   rlStatus(): Promise<RlStatus>;
   rlLive(track?: string): Promise<RlLive>;
   rlLogHistory(): Promise<string[]>;
+  // --- track library (autosaved circuits) ---
+  tracksList(): Promise<SavedTrack[]>;
+  trackLoad(id: string): Promise<{ ok: boolean; project?: TrackProject; error?: string }>;
+  trackSave(id: string, project: TrackProject): Promise<{ ok: boolean; savedAt?: number; error?: string }>;
+  trackDelete(id: string): Promise<{ ok: boolean; error?: string }>;
+  tracksReveal(): Promise<{ ok: boolean }>;
   rlLaunchAC(
     track: string,
     opts?: { race?: boolean; opponents?: number; aiLevel?: number; laps?: number },
@@ -72,6 +79,14 @@ export interface RlLive {
   model: { steps: number; savedAt: number; car?: string } | null;
   banked: string[];
   saved?: RlSavedBot[];
+}
+
+export interface SavedTrack {
+  id: string;
+  name: string;
+  segments: number;
+  length: number;
+  savedAt: number;
 }
 
 export interface RlSavedBot {

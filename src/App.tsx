@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import type { TrackProject, Segment } from './types';
 import { buildTrack, buildCenterline } from './geometry';
 import {
   defaultProject, syncCorners, uniformCorners, withDefaults,
-  snapshotLayout, applyLayout, newZoneId,
+  snapshotLayout, applyLayout, newZoneId, slugify,
 } from './state/project';
 import { closeLoop } from './geometry/closeLoop';
 import { buildPackage, triggerDownload, downloadProjectJson } from './export/zip';
@@ -12,6 +12,7 @@ import { SegmentList } from './components/SegmentList';
 import { SegmentEditor2D } from './components/SegmentEditor2D';
 import { PromptHost, textPrompt } from './prompt';
 import { InstructionsPanel } from './components/InstructionsPanel';
+import { TrackLibrary } from './components/TrackLibrary';
 import { CIRCUIT_PRESETS, applyPreset, findPreset } from './state/presets';
 import { Preview3D } from './components/Preview3D';
 import { InputsPanel } from './components/InputsPanel';
@@ -25,11 +26,16 @@ import { desktop } from './desktop';
 import './App.css';
 
 type Tab = 'track' | 'kerbs' | 'trackside' | 'facilities';
-type View = 'home' | 'build' | 'train';
+type View = 'home' | 'library' | 'build' | 'train';
 
 export default function App() {
   const [view, setView] = useState<View>('home');
   const [showInstr, setShowInstr] = useState(false);
+  // Which library track is open, and when it was last written. `null` = a track
+  // that has never been saved (autosave gives it an id on the first write).
+  const [trackId, setTrackId] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const dirtyRef = useRef(false);
   // Height share of the 2D outline editor vs the 3D preview (drag the divider).
   const [editFrac, setEditFrac] = useState<number>(() => {
     const v = Number(localStorage.getItem('editFrac'));
@@ -83,6 +89,31 @@ export default function App() {
     const startFinishDist = Math.min(project.startFinishDist, total);
     setProject({ ...project, segments, corners, startFinishDist });
   };
+
+
+  // AUTOSAVE. Every edit marks the project dirty; a debounce writes it to the
+  // library ~1.2 s after you stop changing things, so a long build session
+  // survives a crash, a quit, or simply forgetting to save. The write is atomic
+  // in the main process, so an interrupted save can't corrupt a track.
+  // The lap length is stamped on so the library can show it without rebuilding
+  // every track's geometry just to draw the list.
+  useEffect(() => {
+    const d = desktop;
+    if (view !== 'build' || !d) return;
+    dirtyRef.current = true;
+    const t = setTimeout(async () => {
+      if (!dirtyRef.current) return;
+      const id = trackId ?? `${slugify(project.meta.name) || 'track'}_${Date.now().toString(36)}`;
+      const payload = { ...project, __length: built.totalLength } as TrackProject;
+      const r = await d.trackSave(id, payload);
+      if (r.ok) {
+        dirtyRef.current = false;
+        if (!trackId) setTrackId(id);
+        setSavedAt(r.savedAt ?? Date.now());
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [project, view, trackId, built.totalLength]);
 
   const onCloseLoop = () => setSegments(closeLoop(project.segments));
 
@@ -190,7 +221,22 @@ export default function App() {
     { id: 'facilities', label: 'Pit & Buildings' },
   ];
 
-  if (view === 'home') return <Home onBuild={() => setView('build')} onTrain={() => setView('train')} />;
+  if (view === 'home') return <Home onBuild={() => setView('library')} onTrain={() => setView('train')} />;
+  if (view === 'library') {
+    return (
+      <TrackLibrary
+        onHome={() => setView('home')}
+        onNew={() => { setProject(defaultProject()); setTrackId(null); setSavedAt(null); setView('build'); }}
+        onOpen={async (id) => {
+          const r = await desktop!.trackLoad(id);
+          if (!r.ok || !r.project) { alert(r.error || 'Could not open that track.'); return; }
+          const p = withDefaults(r.project);
+          p.corners = syncCorners(p.segments, p.corners ?? [], p.road.defaultKerb);
+          setProject(p); setTrackId(id); setSavedAt(Date.now()); setView('build');
+        }}
+      />
+    );
+  }
   if (view === 'train') return <TrainCenter onHome={() => setView('home')} />;
 
   return (
@@ -233,6 +279,7 @@ export default function App() {
             {layouts.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
           </select>
           <button onClick={saveLayoutAs} title="Save the current shape as a named layout">Save layout</button>
+          <span className="muted autosave-note">{savedAt ? `saved ${new Date(savedAt).toLocaleTimeString()}` : desktop ? "autosaves as you work" : ""}</span>
           <button onClick={() => setShowInstr(true)} title="Build a whole circuit from a written list of commands (AI-generatable)">📝 From instructions</button>
           {layouts.length > 0 && (
             <button
