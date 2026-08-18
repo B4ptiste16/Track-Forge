@@ -354,9 +354,34 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       break;
     }
     case 'DECOR_BOLLARD': {
-      grain(ctx, 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.65)'; // reflective band
-      ctx.fillRect(0, Math.round(SIZE * 0.22), SIZE, Math.round(SIZE * 0.12));
+      // A trackside marker post, read from bottom (V=0) to top (V=1): a dark
+      // weathered foot, the orange body, and two retro-reflective bands near the
+      // top — the thing a driver actually picks out at the edge of a run-off.
+      // The previous version was one translucent stripe on flat orange, which on
+      // a post barely read as a texture at all.
+      const base = Math.round(SIZE * 0.14);
+      ctx.fillStyle = '#2b2b2e';                       // dirty concrete foot
+      ctx.fillRect(0, SIZE - base, SIZE, base);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';              // shadow where it meets
+      ctx.fillRect(0, SIZE - base - px(3), SIZE, px(3));
+      // vertical shading so the round post doesn't look like a flat card
+      for (let x = 0; x < SIZE; x++) {
+        const k = Math.sin((x / SIZE) * Math.PI);       // bright in the middle
+        ctx.fillStyle = `rgba(0,0,0,${(0.34 * (1 - k)).toFixed(3)})`;
+        ctx.fillRect(x, 0, 1, SIZE - base);
+      }
+      // two reflective bands
+      for (const fy of [0.18, 0.34]) {
+        const y = Math.round(SIZE * fy), hgt = Math.round(SIZE * 0.085);
+        ctx.fillStyle = '#f2f4f7';
+        ctx.fillRect(0, y, SIZE, hgt);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';       // hot highlight
+        ctx.fillRect(0, y + Math.round(hgt * 0.25), SIZE, Math.round(hgt * 0.3));
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';             // edges so it has depth
+        ctx.fillRect(0, y, SIZE, px(1));
+        ctx.fillRect(0, y + hgt - px(1), SIZE, px(1));
+      }
+      grain(ctx, 5);
       break;
     }
     case 'DECOR_FLAG': {

@@ -40,7 +40,14 @@ export interface EscapeBuild {
   corridors: EscapeCorridor[]; // keep auto walls out of the escape road
 }
 
+// Upright prop (bollard, block). It writes its own UVs: every one of these ends
+// up MERGED into a single mesh spanning the whole circuit, so the exporter's
+// planar X/Y fallback gave one post a UV range of ~0.05 — the entire post
+// sampled a single texel and rendered as flat colour, which looks exactly like
+// a missing texture. Here U goes around the box and V runs up it, so a banded
+// texture reads as bands up the post.
 function emitBox(m: MeshData, cx: number, cy: number, z0: number, A: [number, number], B: [number, number], h: number): void {
+  if (!m.uvs) m.uvs = [];
   const c: [number, number][] = [
     [cx - A[0] - B[0], cy - A[1] - B[1]],
     [cx + A[0] - B[0], cy + A[1] - B[1]],
@@ -52,10 +59,14 @@ function emitBox(m: MeshData, cx: number, cy: number, z0: number, A: [number, nu
     const out: Vec3 = [(a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy, 0];
     const base = m.vertices.length;
     m.vertices.push([a[0], a[1], z0], [a[0], a[1], z0 + h], [b[0], b[1], z0], [b[0], b[1], z0 + h]);
+    // V spans the full height: 0 at the foot, 1 at the top.
+    m.uvs.push([i / 4, 0], [i / 4, 1], [(i + 1) / 4, 0], [(i + 1) / 4, 1]);
     addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, out);
   }
   const base = m.vertices.length;
   for (const [x, y] of c) m.vertices.push([x, y, z0 + h]);
+  // Cap: sample the very top of the texture rather than collapsing to a point.
+  m.uvs.push([0, 1], [1, 1], [1, 0.92], [0, 0.92]);
   addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
 }
 
