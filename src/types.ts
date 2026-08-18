@@ -49,6 +49,10 @@ export interface CornerConfig {
   exitLen?: number; // m of exit kerb after the corner (default 30)
   apexLen?: number; // m of apex kerb, centered mid-corner, fully free (default 60% of arc)
   insideSurface?: 'grass' | 'gravel' | 'concrete'; // infield fill inside this corner
+  // Escape-road furniture. Both default ON (undefined = true) so existing
+  // tracks are unchanged; set false for a clean run-off with nothing in it.
+  escapeBollards?: boolean; // edge marker posts down both sides
+  escapeKerbs?: boolean;    // the sausage-kerb speed bumps of the 'sausage' type
 }
 
 // Legacy per-segment runoff (old projects) — migrated to Trackside on load.

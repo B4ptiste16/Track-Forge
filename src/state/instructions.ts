@@ -201,6 +201,45 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         p.corners = p.corners.map((c) => (c.cornerIndex === i ? { ...c, escapeType: t } : c));
         ok(`corner ${i} escape = ${t}`); break;
       }
+      // Kerb SIZE for one corner. The kerb TYPE is set by CORNERKERB; this is
+      // how wide the kerb is and how far it runs before / through / after the
+      // corner — a wide flat kerb you can use, or a narrow one you cannot.
+      case 'KERBSIZE': {
+        const i = num(a[0]);
+        const w = num(a[1]);
+        if (i === null || w === null || w <= 0 || w > 4) {
+          err('KERBSIZE needs <corner_index> <width_m 0.3..4> [entry_len] [apex_len] [exit_len]'); break;
+        }
+        if (!corner(i)) break;
+        const eL = num(a[2]), aL = num(a[3]), xL = num(a[4]);
+        p.corners = p.corners.map((c) => (c.cornerIndex === i ? {
+          ...c, entryW: w, apexW: w, exitW: w,
+          ...(eL !== null ? { entryLen: eL } : {}),
+          ...(aL !== null ? { apexLen: aL } : {}),
+          ...(xL !== null ? { exitLen: xL } : {}),
+        } : c));
+        ok(`corner ${i} kerb ${w} m wide${eL !== null ? `, lengths ${eL}/${aL ?? '-'}/${xL ?? '-'} m` : ''}`);
+        break;
+      }
+      // What sits IN an escape road. Both default on.
+      case 'ESCAPEFURNITURE': {
+        const i = num(a[0]);
+        const what = oneOf(a[1], ['bollards', 'kerbs', 'both', 'none'] as const);
+        const on = onOff(a[2]);
+        if (i === null || !what) {
+          err('ESCAPEFURNITURE needs <corner_index> bollards|kerbs|both|none [on|off]'); break;
+        }
+        if (!corner(i)) break;
+        // "none" is shorthand for turning everything off; otherwise on/off applies.
+        const val = what === 'none' ? false : (on ?? true);
+        p.corners = p.corners.map((c) => (c.cornerIndex === i ? {
+          ...c,
+          ...(what === 'bollards' || what === 'both' || what === 'none' ? { escapeBollards: val } : {}),
+          ...(what === 'kerbs' || what === 'both' || what === 'none' ? { escapeKerbs: val } : {}),
+        } : c));
+        ok(`corner ${i} escape furniture: ${what} ${val ? 'on' : 'off'}`);
+        break;
+      }
       case 'INSIDE': {
         const i = num(a[0]);
         const s = oneOf(a[1], ['grass', 'gravel', 'concrete'] as const);
@@ -460,7 +499,19 @@ fixed afterwards without redoing the shape. Two conditions must BOTH hold.
   numbers if it is not close to 0.
 
 PER-CORNER (corner_index counts corners only, from 0, in lap order)
-  CORNERKERB <i> <entry> <apex> <exit>    kerb types as above
+  KERBS ARE FULLY YOURS TO SET — type, width and length, per corner and per
+  part of the corner (entry / apex / exit). Pick them deliberately: a wide flat
+  kerb is one a driver can put two wheels on, a tall sausage is one that will
+  unsettle the car. Typical widths 0.8-1.5 m; entry ~25 m, exit ~30 m, apex
+  runs through the corner itself.
+  CORNERKERB <i> <entry> <apex> <exit>    kerb TYPE for each part of the corner
+      none|painted|flat|serrated|ripple|sausage|tall|combo
+  KERBSIZE <i> <width_m> [entry_len_m] [apex_len_m] [exit_len_m]
+      e.g.  KERBSIZE 3 1.2 25 60 30      1.2 m wide, 25 m in, 60 m through, 30 m out
+  ESCAPEFURNITURE <i> bollards|kerbs|both|none [on|off]
+      Escape roads carry edge bollards (and speed-bump kerbs on the 'sausage'
+      type) by default. Turn them off for a clean paved run-off:
+            ESCAPEFURNITURE 4 none
   INSIDE <i> grass|gravel|concrete
 
 TRACKSIDE / RUN-OFF

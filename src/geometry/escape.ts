@@ -17,7 +17,12 @@ import { addQuadUp, addQuadToward } from './meshbuilder';
 //   slalom  — staggered block gates
 //   gravel  — gravel surface over the run-off (drags the car down)
 
-const LIFT = 0.012; // above surrounding aprons so physics picks the escape surface
+// The escape surface sits slightly BELOW the racing line's plane. It used to be
+// lifted ABOVE its surroundings, which meant that wherever a run-off overlapped
+// the track you saw gravel laid over the road — and the track limits vanished
+// under it. Sitting lower means the track is always the surface drawn on top,
+// so the white line and the edge stay readable with an escape road present.
+const LIFT = -0.02;
 
 export interface EscapeCorridor {
   origin: [number, number];
@@ -162,17 +167,21 @@ export function buildEscapes(
       path.push({ x, y, tx: dx, ty: dy, half, z });
     }
 
-    emitEscape(type, { road, gravel, kerbHi, poly, bollards, corridors }, path, kSign);
+    emitEscape(type, { road, gravel, kerbHi, poly, bollards, corridors }, path, kSign,
+      { bollards: cfg?.escapeBollards, kerbs: cfg?.escapeKerbs });
   }
 
   return { road, gravel, kerbHi, poly, bollards, corridors };
 }
+
+interface EscapeOpts { bollards?: boolean; kerbs?: boolean }
 
 function emitEscape(
   type: EscapeType,
   out: Omit<EscapeBuild, never>,
   path: PathPt[],
   kSign: number,
+  opts: EscapeOpts = {},
 ): void {
   const { road, gravel, kerbHi, poly, bollards, corridors } = out;
   const M = path.length - 1;
@@ -188,7 +197,7 @@ function emitEscape(
     addQuadUp(surf.vertices, surf.faces, vb, vb + 1, vb + 3, vb + 2);
   }
 
-  if (type === 'sausage') {
+  if (type === 'sausage' && opts.kerbs !== false) {
     // Rows of sausage kerbs ACROSS the whole lane (speed bumps), spaced along
     // the middle stretch — the car bumps over them slowing down, then has
     // clear tarmac to reaccelerate before the rejoin.
@@ -230,8 +239,9 @@ function emitEscape(
   }
   // 'tarmac' and 'gravel' get no in-lane furniture — just the surface + edges.
 
-  // edge bollards along both sides (all types)
-  for (let k = Math.round(M * 0.08); k <= Math.round(M * 0.92); k += 3) {
+  // Edge bollards. Previously emitted for EVERY escape type with no way to turn
+  // them off; a clean paved run-off often wants nothing in it at all.
+  if (opts.bollards !== false) for (let k = Math.round(M * 0.08); k <= Math.round(M * 0.92); k += 3) {
     const p = path[k];
     for (const sgn of [1, -1]) {
       const c = at(p, (p.half + 0.7) * sgn);
