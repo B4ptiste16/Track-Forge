@@ -1,5 +1,6 @@
 import type { BuiltTrack } from '../geometry';
 import type { TexFile } from './textures';
+import { baseSurfaceName } from './fbx';
 
 // ---------------------------------------------------------------------------
 // KsEditor persistence file (`<name>.fbx.ini`) — the Race Track Builder trick.
@@ -104,7 +105,7 @@ export function genKsPersistence(
 
   const mats = built.meshes.map((m) => ({
     name: `mat_${m.name}`,
-    texture: textures.find((t) => t.surface === m.name)?.name ?? 'road.png',
+    texture: textures.find((t) => t.surface === baseSurfaceName(m.name))?.name ?? 'road.png',
   }));
   const matList = [`[MATERIAL_LIST]`, `COUNT=${mats.length}`].join('\r\n');
   const matBlocks = mats.map((m, i) => materialBlock(i, m.name, m.texture));

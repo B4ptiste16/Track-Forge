@@ -70,13 +70,65 @@ function hexRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
 }
 
+// ksEditor/KN5 limit: 16-bit vertex indices per mesh.
+const KN5_VERT_LIMIT = 60000; // headroom under 65535
+
+// A part's material is looked up by its BASE name, so "DECOR_TREE_part2" still
+// resolves to the tree material and texture.
+export function baseSurfaceName(name: string): string {
+  return name.replace(/_part\d+$/, '');
+}
+
+/** Split a mesh whose vertex count exceeds what a KN5 mesh can index. Faces are
+ *  kept whole and vertices are re-indexed per part, so each part is a valid
+ *  standalone mesh. Meshes under the limit are returned untouched. */
+function splitForKn5(mesh: MeshData): MeshData[] {
+  if (mesh.vertices.length <= KN5_VERT_LIMIT) return [mesh];
+  const parts: MeshData[] = [];
+  let cur: MeshData | null = null;
+  let remap = new Map<number, number>();
+  const start = () => {
+    cur = {
+      name: `${mesh.name}_part${parts.length + 1}`,
+      vertices: [], faces: [],
+      ...(mesh.uvs ? { uvs: [] as [number, number][] } : {}),
+      ...(mesh.colors ? { colors: [] as Vec3[] } : {}),
+    };
+    remap = new Map();
+    parts.push(cur);
+  };
+  const take = (vi: number): number => {
+    const hit = remap.get(vi);
+    if (hit !== undefined) return hit;
+    const ni = cur!.vertices.length;
+    cur!.vertices.push(mesh.vertices[vi]);
+    if (cur!.uvs && mesh.uvs) cur!.uvs.push(mesh.uvs[vi]);
+    if (cur!.colors && mesh.colors) cur!.colors.push(mesh.colors[vi]);
+    remap.set(vi, ni);
+    return ni;
+  };
+  start();
+  for (const f of mesh.faces) {
+    // 3 is the most a triangle can add, so this can never overshoot the limit.
+    if (cur!.vertices.length + 3 > KN5_VERT_LIMIT) start();
+    cur!.faces.push([take(f[0]), take(f[1]), take(f[2])]);
+  }
+  return parts;
+}
+
 export function genFbx(project: TrackProject, built: BuiltTrack): string {
   let idSeq = 1000000;
   const nextId = () => ++idSeq;
   const pal = THEME_PALETTES[project.meta.theme];
 
   interface MeshNode { geomId: number; modelId: number; matId: number; texId: number; vidId: number; mesh: MeshData; }
-  const meshNodes: MeshNode[] = built.meshes.map((m) => ({
+  // A KN5 mesh indexes its vertices with 16 bits, so ksEditor refuses anything
+  // past 65535 in one object ("too many vertices"). A dense treeline round a
+  // 6 km circuit sails past that, and continuous barriers are not far behind.
+  // Split oversized meshes into parts here rather than limiting what the track
+  // can contain — each part keeps the SAME base name, so it gets the same
+  // material and texture (see baseSurfaceName).
+  const meshNodes: MeshNode[] = built.meshes.flatMap(splitForKn5).map((m) => ({
     geomId: nextId(), modelId: nextId(), matId: nextId(), texId: nextId(), vidId: nextId(), mesh: m,
   }));
   interface NullNode { modelId: number; attrId: number; e: EmptyData; }
@@ -236,7 +288,7 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(2, 'Culling: "CullingOff"');
     L(1, '}');
 
-    const [r, g, b] = hexRgb(meshColor(mn.mesh.name, pal));
+    const [r, g, b] = hexRgb(meshColor(baseSurfaceName(mn.mesh.name), pal));
     L(1, `Material: ${mn.matId}, "Material::mat_${mn.mesh.name}", "" {`);
     L(2, 'Version: 102');
     L(2, 'ShadingModel: "lambert"');
@@ -250,7 +302,7 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
 
     // Texture + Video pair referencing the PNG beside the FBX — this is what
     // makes ksEditor pre-assign txDiffuse on import (the RTB behaviour).
-    const texFile = textureFileName(mn.mesh.name);
+    const texFile = textureFileName(baseSurfaceName(mn.mesh.name));
     L(1, `Video: ${mn.vidId}, "Video::${texFile}", "Clip" {`);
     L(2, 'Type: "Clip"');
     L(2, 'Properties70:  {');
