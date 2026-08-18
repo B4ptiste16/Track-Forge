@@ -39,20 +39,61 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
     ref.push({ x: samples[i].pos[0], y: samples[i].pos[1], z: samples[i].pos[2] });
   }
 
+  // NEAR the track the ground must sit strictly BELOW it: a weighted average
+  // only APPROXIMATES the local height, and wherever it came out high the
+  // terrain pushed up through the racing surface. So inside `nearR` the height
+  // is taken from the nearest track sample and dropped by `sink`, which cannot
+  // overlay by construction. Past `farR` it is the smooth weighted field, and
+  // between the two it eases across so there is no ledge at the join.
+  const nearR = 60;   // m — comfortably past the run-off aprons
+  const farR = 220;   // m — fully "open country" beyond here
+  const sink = 0.35;  // m the ground sits under the racing surface
   let h = new Float64Array(nx * ny);
+  // The highest this grid point may ever sit. Enforced AFTER smoothing, because
+  // the smoothing passes average in higher neighbours and were quietly undoing
+  // the hug — which is why terrain still came up through the track.
+  const capZ = new Float64Array(nx * ny).fill(Infinity);
   for (let j = 0; j < ny; j++) {
     const y = y0 + j * dy;
     for (let i = 0; i < nx; i++) {
       const x = x0 + i * dx;
-      let wsum = 0, hsum = 0;
+      let wsum = 0, hsum = 0, bestD2 = Infinity, bestZ = 0;
       for (const r of ref) {
         const ddx = x - r.x, ddy = y - r.y;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < bestD2) { bestD2 = d2; bestZ = r.z; }
         // +1 keeps this finite right on top of a sample; the square falloff
         // makes nearby track dominate, so the ground hugs it.
-        const w = 1 / (ddx * ddx + ddy * ddy + 1);
+        const w = 1 / (d2 + 1);
         wsum += w; hsum += w * r.z;
       }
-      h[j * nx + i] = wsum > 0 ? hsum / wsum : 0;
+      const idw = wsum > 0 ? hsum / wsum : 0;
+      let d = Math.sqrt(bestD2);
+      // The thinned refs are fine for the smooth far field, but near the track
+      // they are too coarse to hug it: on a gradient the closest REF can sit a
+      // good fraction of a metre above the closest actual point, which is how
+      // terrain ended up poking through the racing surface. For grid points
+      // that are actually near, re-find the nearest over every sample.
+      if (d < farR) {
+        let d2 = Infinity, z = bestZ;
+        for (const s of samples) {
+          const ddx = x - s.pos[0], ddy = y - s.pos[1];
+          const q = ddx * ddx + ddy * ddy;
+          if (q < d2) { d2 = q; z = s.pos[2]; }
+        }
+        d = Math.sqrt(d2); bestZ = z;
+      }
+      const hugging = bestZ - sink;
+      let v: number;
+      if (d <= nearR) v = hugging;
+      else if (d >= farR) v = idw;
+      else {
+        const t = (d - nearR) / (farR - nearR);
+        const e = t * t * (3 - 2 * t); // smoothstep, so the blend has no crease
+        v = hugging * (1 - e) + idw * e;
+      }
+      h[j * nx + i] = v;
+      if (d < farR) capZ[j * nx + i] = bestZ - sink;
     }
   }
   // A couple of box passes so the field rolls instead of faceting.
@@ -73,12 +114,14 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
     }
     h = out;
   }
+  // Hard ceiling: nothing near the track may end up above the racing surface.
+  for (let i = 0; i < h.length; i++) if (h[i] > capZ[i]) h[i] = capZ[i];
 
   const vertices: Vec3[] = [];
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       // Sit a touch under the run-off so the aprons always win the depth test.
-      vertices.push([x0 + i * dx, y0 + j * dy, h[j * nx + i] - 0.12]);
+      vertices.push([x0 + i * dx, y0 + j * dy, h[j * nx + i]]);
     }
   }
   const faces: [number, number, number][] = [];
@@ -566,9 +609,22 @@ function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number
   wall.vertices.push([oA[0] + t[0], oA[1] + t[1], oA[2] + h]);
   wall.vertices.push([oB[0], oB[1], oB[2] + h]);
   wall.vertices.push([oB[0] + t[0], oB[1] + t[1], oB[2] + h]);
+  // U runs along the barrier, V up its face. The two faces that matter — the one
+  // the driver sees and its back — are mapped by these 8.
   wall.uvs!.push([uA, 0], [uA, 0], [uB, 0], [uB, 0], [uA, 1], [uA, 1], [uB, 1], [uB, 1]);
   const out: Vec3 = [-inward[0], -inward[1], 0];
   addQuadToward(wall.vertices, wall.faces, base + 0, base + 4, base + 6, base + 2, out); // track-facing
   addQuadToward(wall.vertices, wall.faces, base + 1, base + 5, base + 7, base + 3, inward); // back
-  addQuadUp(wall.vertices, wall.faces, base + 4, base + 5, base + 7, base + 6); // top
+  // The TOP needs its own vertices. Reusing the box corners gave all four of
+  // them V=1, i.e. zero UV area, so the top of every barrier sampled a single
+  // line of the texture and rendered as a smear. Duplicating them lets V run
+  // across the thickness, which is what the top face actually spans.
+  const vT = Math.max(0.05, thick / 4); // thickness in the same tile units as U
+  const top = wall.vertices.length;
+  wall.vertices.push([oA[0], oA[1], oA[2] + h]);
+  wall.vertices.push([oA[0] + t[0], oA[1] + t[1], oA[2] + h]);
+  wall.vertices.push([oB[0] + t[0], oB[1] + t[1], oB[2] + h]);
+  wall.vertices.push([oB[0], oB[1], oB[2] + h]);
+  wall.uvs!.push([uA, 0], [uA, vT], [uB, vT], [uB, 0]);
+  addQuadUp(wall.vertices, wall.faces, top + 0, top + 1, top + 2, top + 3); // top
 }

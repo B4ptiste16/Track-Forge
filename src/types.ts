@@ -132,6 +132,12 @@ export interface WallConfig {
   enabled: boolean; // master switch for all barriers
   height: number; // wall height (m)
   style: WallStyle; // concrete / metal guardrail / TecPro / tyre-poly blocks
+  // Barrier all the way round, with no gaps. The builder used to drop the inside
+  // barrier through corners so a straight's wall couldn't cut across a corner's
+  // inside — but that leaves stretches of track with nothing to stop a car. The
+  // run-off builder already clamps wall distance by curvature, so the barrier
+  // can simply follow the corner instead of being removed. Default on.
+  continuous?: boolean;
 }
 
 export interface BridgeConfig {

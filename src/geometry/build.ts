@@ -2,6 +2,10 @@ import type { TrackProject, StripCfg, RunoffType } from '../types';
 import type { BuiltTrack, MeshData } from './types';
 import { buildCenterline, computeClosure } from './centerline';
 import { makeHeightFn, smoothHeights } from './elevation';
+
+// Every metre of track gets SOME run-off and a barrier behind it — a stretch
+// with neither is just a place to fall off the world.
+const MIN_RUNOFF_M = 3;
 import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
@@ -109,7 +113,10 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // straight's wall stops well before a tight corner instead of cutting across
   // its inside. The margin grows as the corner tightens.
   const suppressWall = samples.map(() => ({ left: false, right: false }));
-  for (const span of spans) {
+  // Continuous barriers (the default): never drop a stretch of wall. The
+  // curvature cap keeps it geometrically sane through a corner's inside.
+  const continuousWalls = project.walls.continuous !== false;
+  for (const span of continuousWalls ? [] : spans) {
     if (span.kind !== 'corner') continue;
     const seg = segsClamped[span.segIndex];
     if (seg.kind !== 'corner') continue;
@@ -141,9 +148,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
             : '1GRASS';
   const toResolved = (cfg: StripCfg): ResolvedSide => ({
     surface: stripSurface(cfg.texture),
-    width: cfg.width,
+    width: Math.max(cfg.width, MIN_RUNOFF_M),
     wall: cfg.wall,
-    wallDist: cfg.wallDist ?? cfg.width,
+    wallDist: Math.max(cfg.wallDist ?? cfg.width, MIN_RUNOFF_M),
     ...(cfg.texture === 'gravel_spaced' ? { splitAt: 0.5, splitSurface: '1GRASS' } : {}),
   });
   const resolveSide = (d: number, segIndex: number, side: 'left' | 'right'): ResolvedSide => {
@@ -181,8 +188,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const L = resolveSide(s.dist, s.segIndex, 'left');
     const R = resolveSide(s.dist, s.segIndex, 'right');
     return {
-      left: suppressWall[i].left ? { ...L, wall: false } : L,
-      right: suppressWall[i].right ? { ...R, wall: false } : R,
+      // With continuous barriers on, every sample gets one on both sides —
+      // "wall everywhere" has to mean everywhere, not just where a strip
+      // happened to have its barrier toggle set.
+      left: suppressWall[i].left ? { ...L, wall: false } : (continuousWalls ? { ...L, wall: true } : L),
+      right: suppressWall[i].right ? { ...R, wall: false } : (continuousWalls ? { ...R, wall: true } : R),
     };
   });
 
