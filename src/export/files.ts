@@ -5,6 +5,7 @@ import { genBlenderScript } from './blenderScript';
 import { genFbx } from './fbx';
 import { genSurfacesIni } from './surfaces';
 import { genExtConfig, genLightingIni } from './lighting';
+import { genTrackMap } from './trackMap';
 import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
@@ -27,6 +28,9 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
   const fbxText = genFbx(project, built);
   const aiLine = genFastLaneAi(built, project.road.width, project.startFinishDist);
   const pitLane = genPitLaneAi(built, project);
+  // The live minimap, its calibration, and the menu art. Without these AC shows
+  // the track with no picture and no map while driving.
+  const map = genTrackMap(built, project);
 
   const files: TrackFile[] = [
     { path: `${slug}.fbx`, text: fbxText },
@@ -34,6 +38,12 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     { path: `${slug}.fbx.ini`, text: genKsPersistence(slug, fbxText, built, textures) },
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
     { path: 'data/lighting.ini', text: genLightingIni() },
+    // map.png + map.ini are a PAIR: AC positions the car's dot on the image
+    // using the ini, so they are always generated together from one shape.
+    { path: 'map.png', bytes: map.mapPng },
+    { path: 'data/map.ini', text: map.mapIni },
+    { path: 'ui/outline.png', bytes: map.outlinePng },
+    { path: 'ui/preview.png', bytes: map.previewPng },
     // Night floodlights for CSP. Vanilla AC has no dynamic track lights, so this
     // is inert without CSP and lights the circuit properly once it's installed.
     ...(built.lightMasts.length ? [{ path: 'extension/ext_config.ini', text: genExtConfig(built.lightMasts) }] : []),
