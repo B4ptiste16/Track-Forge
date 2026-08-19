@@ -14,6 +14,7 @@
 //      light masts the builder places around the circuit. Harmless if CSP isn't
 //      installed (AC ignores the folder); lights up properly the moment it is.
 // The masts themselves are geometry — see buildLightMasts in geometry/decor.ts.
+import type { BuiltTrack } from '../geometry';
 import type { LightMast } from '../geometry/types';
 
 // Sun/ambient. NIGHT_* keys are what keep a dark session from crushing to black
@@ -70,4 +71,46 @@ SHADOWS=0
 `;
   });
   return head + '\n' + blocks.join('\n');
+}
+
+/**
+ * CSP Grass FX — procedurally generated 3D grass, drawn by the patch at runtime.
+ *
+ * This is how a modern AC track gets grass that stands up out of the ground
+ * without shipping the geometry for it: CSP grows it on whichever MATERIALS you
+ * nominate, and hides it under the ones you list as occluding, so the road and
+ * kerbs stay clear. Far cheaper than cards — nothing is added to the model.
+ *
+ * The grass-card geometry the app can also build is listed under
+ * ORIGINAL_GRASS_MATERIALS, which is CSP's own mechanism for "hide the track's
+ * built-in grass, mine replaces it". So a track can carry cards as a fallback
+ * for anyone without CSP and still look right for anyone who has it — you never
+ * get both at once.
+ */
+export function genGrassFx(built: BuiltTrack): string {
+  const present = new Set(built.meshes.map((m) => m.name.replace(/_\d+$/, '')));
+  if (!present.has('1GRASS')) return '';
+
+  // Everything a car drives on must suppress grass, or it grows through the
+  // racing surface. Only list what this track actually contains.
+  const occluders = ['1ROAD', '1PIT', '1KERB', '1KERBHI', '1CONCRETE', '1TARMAC', '1SAND', '1DIRT',
+    'ROAD_LINE', 'PIT_LINE', '1WALL']
+    .filter((n) => present.has(n))
+    .map((n) => `mat_${n}`);
+  const cards = present.has('DECOR_GRASSTUFT') ? 'mat_DECOR_GRASSTUFT' : '';
+
+  return `[GRASS_FX]
+; Grass grows on the grass material and is suppressed on everything drivable.
+GRASS_MATERIALS = mat_1GRASS
+OCCLUDING_MATERIALS = ${occluders.join(', ')}
+; Hide the app's own grass cards when CSP is doing the grass, so a track that
+; ships both never renders two layers of it.
+ORIGINAL_GRASS_MATERIALS = ${cards}
+; The grass material is grass by definition here — it was generated as such — so
+; spawn across all of it rather than sampling the texture for green pixels.
+MASK_MAIN_THRESHOLD = -1
+MASK_RED_THRESHOLD = -1
+MASK_MIN_LUMINANCE = 0
+MASK_MAX_LUMINANCE = 1
+`;
 }

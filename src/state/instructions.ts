@@ -600,7 +600,9 @@ SURFACE PATCHES — put run-off exactly where you want it
 
 SCENERY & SURFACE
   TREES <0..1>
-  GRASSTUFTS <0..1>|off        3D grass standing up on the verge (0.4-0.6 is plenty)
+  GRASSTUFTS <0..1>|off        grass CARDS on the verge. Leave off: the export
+      writes a CSP Grass FX config, which grows real 3D grass at runtime for
+      free. Only turn these on for players without Custom Shaders Patch.
   GRANDSTANDS on|off
   LIGHTS <spacing_m>|off
   GRASSLIP <m>                    how far grass sits above the tarmac

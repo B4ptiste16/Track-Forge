@@ -4,7 +4,7 @@ import { slugify, THEME_PALETTES } from '../state/project';
 import { genBlenderScript } from './blenderScript';
 import { genFbx } from './fbx';
 import { genSurfacesIni } from './surfaces';
-import { genExtConfig, genLightingIni } from './lighting';
+import { genExtConfig, genGrassFx, genLightingIni } from './lighting';
 import { genTrackMap } from './trackMap';
 import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
@@ -31,6 +31,11 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
   // The live minimap, its calibration, and the menu art. Without these AC shows
   // the track with no picture and no map while driving.
   const map = genTrackMap(built, project);
+  // One CSP config carries everything the patch adds: night lights and Grass FX.
+  const ext = [
+    built.lightMasts.length ? genExtConfig(built.lightMasts) : '',
+    genGrassFx(built),
+  ].filter(Boolean).join('\n');
 
   const files: TrackFile[] = [
     { path: `${slug}.fbx`, text: fbxText },
@@ -46,7 +51,7 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     { path: 'ui/preview.png', bytes: map.previewPng },
     // Night floodlights for CSP. Vanilla AC has no dynamic track lights, so this
     // is inert without CSP and lights the circuit properly once it's installed.
-    ...(built.lightMasts.length ? [{ path: 'extension/ext_config.ini', text: genExtConfig(built.lightMasts) }] : []),
+    ...(ext ? [{ path: 'extension/ext_config.ini', text: ext }] : []),
     { path: 'ui/ui_track.json', text: genUiTrack(project, built) },
     { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },
     // AI racing line — AC's opponents + the "ideal line" app work out of the box.
