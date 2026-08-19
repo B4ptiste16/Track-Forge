@@ -76,6 +76,41 @@ function bandsAcross(ctx: CanvasRenderingContext2D, colors: string[]): void {
   });
 }
 
+
+// SEAMLESS DRAWING. A texture tiles every few metres, so anything drawn near an
+// edge is chopped in half and the cut shows up as a hard line repeating across
+// the ground. Drawing the same feature again offset by a full tile makes the
+// half that fell off one edge reappear on the opposite one, so the pattern
+// joins up invisibly. Only the copies that can actually be visible are drawn.
+function wrap(x: number, y: number, r: number, fn: (x: number, y: number) => void): void {
+  fn(x, y);
+  const l = x < r, rt = x > SIZE - r, t = y < r, b = y > SIZE - r;
+  if (l) fn(x + SIZE, y);
+  if (rt) fn(x - SIZE, y);
+  if (t) fn(x, y + SIZE);
+  if (b) fn(x, y - SIZE);
+  if (l && t) fn(x + SIZE, y + SIZE);
+  if (l && b) fn(x + SIZE, y - SIZE);
+  if (rt && t) fn(x - SIZE, y + SIZE);
+  if (rt && b) fn(x - SIZE, y - SIZE);
+}
+
+// One blade of grass: a tapered sliver leaning off vertical, drawn from its root.
+function blade(ctx: CanvasRenderingContext2D, x: number, y: number, len: number,
+               wid: number, lean: number, col: string): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(lean);
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-wid / 2, 0);
+  ctx.lineTo(wid / 2, 0);
+  ctx.lineTo(wid * 0.12, -len);   // tapers to a point
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 // Draw the texture for one surface. Rich enough to read as a material in-game;
 // the UVs exported in the FBX make stripes/bands land where they should.
 function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
@@ -107,36 +142,58 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       break;
     }
     case '1GRASS': {
-      grain(ctx, 13);
-      const [r, g, b] = hexRgb(hex);
-      // 1) mown/growth clumps — big soft tonal variation so it isn't flat green
-      for (let i = 0; i < dens(20); i++) {
-        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(14 + Math.random() * 40);
-        const d = -16 + Math.random() * 30;
-        const gr = ctx.createRadialGradient(x, y, 1, x, y, rad);
-        gr.addColorStop(0, `rgba(${r + d},${g + d + 6},${b + d},0.55)`);
-        gr.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = gr;
-        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+      // Grass seen from a car: you should read individual blades and the dark
+      // soil between them, not a flat green field with speckles on it. Built in
+      // depth order — soil, shadowed under-layer, the bulk of the sward, then a
+      // few bright tips catching the light — and every blade is wrapped, so the
+      // texture tiles without a seam.
+      const [gr, gg, gb] = hexRgb(hex);
+      const soil = `rgb(${Math.max(0, gr - 26)},${Math.max(0, gg - 34)},${Math.max(0, gb - 22)})`;
+      ctx.fillStyle = soil;
+      ctx.fillRect(0, 0, SIZE, SIZE);
+
+      // patchiness: mown bands and richer clumps, so it isn't one even tone
+      for (let i = 0; i < dens(22); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(16 + Math.random() * 44);
+        const d = -14 + Math.random() * 26;
+        wrap(x, y, rad, (wx, wy) => {
+          const g2 = ctx.createRadialGradient(wx, wy, 1, wx, wy, rad);
+          g2.addColorStop(0, `rgba(${gr + d},${gg + d + 8},${gb + d},0.5)`);
+          g2.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g2;
+          ctx.beginPath(); ctx.arc(wx, wy, rad, 0, Math.PI * 2); ctx.fill();
+        });
       }
-      // 2) individual blades, angled and varied in length/tone (not all vertical)
-      for (let i = 0; i < dens(2600); i++) {
-        const d = Math.random() < 0.5 ? -26 - Math.random() * 12 : 20 + Math.random() * 16;
-        ctx.save();
-        ctx.translate(Math.random() * SIZE, Math.random() * SIZE);
-        ctx.rotate((Math.random() - 0.5) * 1.1); // lean
-        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        ctx.fillRect(0, 0, px(1), px(2 + Math.random() * 4));
-        ctx.restore();
+
+      // Three passes of blades. Roots are scattered, each blade leans a
+      // different way, and length/tone vary — that variation is what stops it
+      // reading as a dotted pattern.
+      const pass = (count: number, lo: number, hi: number, dMin: number, dMax: number, alpha: number) => {
+        for (let i = 0; i < count; i++) {
+          const x = Math.random() * SIZE, y = Math.random() * SIZE;
+          const len = px(lo + Math.random() * (hi - lo));
+          const wid = px(0.7 + Math.random() * 0.8);
+          const lean = (Math.random() - 0.5) * 1.3;
+          const d = dMin + Math.random() * (dMax - dMin);
+          const col = `rgba(${Math.max(0, gr + d)},${Math.max(0, gg + d)},${Math.max(0, gb + d)},${alpha})`;
+          wrap(x, y, len + wid, (wx, wy) => blade(ctx, wx, wy, len, wid, lean, col));
+        }
+      };
+      pass(dens(1500), 3, 7, -40, -22, 1);    // shaded under-layer, deep in the sward
+      pass(dens(2000), 4, 10, -14, 10, 1);    // the body of the grass
+      pass(dens(900), 5, 12, 18, 40, 0.95);   // tips catching the light
+
+      // a few dry patches and seed heads for variety
+      for (let i = 0; i < dens(6); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(5 + Math.random() * 10);
+        wrap(x, y, rad, (wx, wy) => {
+          ctx.fillStyle = `rgba(${gr + 40},${gg + 26},${gb - 8},0.20)`;
+          ctx.beginPath();
+          ctx.ellipse(wx, wy, rad, rad * 0.6, Math.random() * Math.PI, 0, Math.PI * 2);
+          ctx.fill();
+        });
       }
-      // 3) a few dry/bare scuffs
-      for (let i = 0; i < dens(7); i++) {
-        ctx.fillStyle = `rgba(${r + 34},${g + 22},${b - 6},0.22)`;
-        ctx.beginPath();
-        ctx.ellipse(Math.random() * SIZE, Math.random() * SIZE, px(6 + Math.random() * 12), px(3 + Math.random() * 6),
-          Math.random() * Math.PI, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      grain(ctx, 7);
       break;
     }
     case '1SAND': { // gravel trap
@@ -146,37 +203,79 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       //    ploughed through it. Baked in, because AC can't deform a surface at
       //    runtime — this is what gives the "cars have been through here" read.
       for (let i = 0; i < dens(9); i++) {
-        const y0 = Math.random() * SIZE;
+        const x0 = Math.random() * SIZE, y0 = Math.random() * SIZE;
         const ang = (Math.random() - 0.5) * 0.5;
-        ctx.save();
-        ctx.translate(Math.random() * SIZE, y0);
-        ctx.rotate(ang);
         const w = px(5 + Math.random() * 9), len = px(60 + Math.random() * 180);
-        ctx.fillStyle = 'rgba(0,0,0,0.16)'; // gouged trough
-        ctx.fillRect(-len / 2, 0, len, w);
-        ctx.fillStyle = `rgba(${r + 30},${g + 26},${b + 20},0.35)`; // thrown-up ridge
-        ctx.fillRect(-len / 2, -px(2), len, px(2.5));
-        ctx.fillRect(-len / 2, w, len, px(2.5));
-        ctx.restore();
+        wrap(x0, y0, len, (wx, wy) => {
+          ctx.save();
+          ctx.translate(wx, wy);
+          ctx.rotate(ang);
+          ctx.fillStyle = 'rgba(0,0,0,0.16)'; // gouged trough
+          ctx.fillRect(-len / 2, 0, len, w);
+          ctx.fillStyle = `rgba(${r + 30},${g + 26},${b + 20},0.35)`; // thrown-up ridge
+          ctx.fillRect(-len / 2, -px(2), len, px(2.5));
+          ctx.fillRect(-len / 2, w, len, px(2.5));
+          ctx.restore();
+        });
       }
       // 2) pebbles: lit body + darker under-edge, several size classes
       for (let i = 0; i < dens(1100); i++) {
         const pr = px(0.8 + Math.random() * (Math.random() < 0.12 ? 4.2 : 2.0));
         const x = Math.random() * SIZE, y = Math.random() * SIZE;
         const d = -24 + Math.random() * 62;
-        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(0,0,0,0.22)';
-        ctx.beginPath(); ctx.arc(x + pr * 0.3, y + pr * 0.45, pr * 0.8, 0, Math.PI); ctx.fill();
+        wrap(x, y, pr + px(1), (wx, wy) => {
+          ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
+          ctx.beginPath(); ctx.arc(wx, wy, pr, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(0,0,0,0.22)';
+          ctx.beginPath(); ctx.arc(wx, wy + pr * 0.35, pr * 0.85, 0, Math.PI * 2); ctx.fill();
+        });
       }
       break;
     }
     case '1CONCRETE': {
+      const [cr, cg, cb] = hexRgb(hex);
       grain(ctx, 6);
+      // Cast concrete is blotchy: pours cure at different rates and it stains.
+      // Wrapped, so the blotches carry across the tile edge instead of stopping.
+      for (let i = 0; i < dens(16); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(14 + Math.random() * 40);
+        const d = -12 + Math.random() * 20;
+        wrap(x, y, rad, (wx, wy) => {
+          const g2 = ctx.createRadialGradient(wx, wy, 1, wx, wy, rad);
+          g2.addColorStop(0, `rgba(${cr + d},${cg + d},${cb + d},0.45)`);
+          g2.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g2;
+          ctx.beginPath(); ctx.arc(wx, wy, rad, 0, Math.PI * 2); ctx.fill();
+        });
+      }
       speckle(ctx, dens(350), [px(0.4), px(1.0)], 0.10, false);
-      ctx.fillStyle = 'rgba(0,0,0,0.18)'; // slab seams
-      for (let y = 0; y < SIZE; y += px(64)) ctx.fillRect(0, y, SIZE, px(1));
-      for (let x = 0; x < SIZE; x += px(128)) ctx.fillRect(x, 0, px(1), SIZE);
+      // Fine surface cracks, wrapped so they run on across tiles.
+      for (let i = 0; i < dens(7); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const len = px(20 + Math.random() * 50), ang = Math.random() * Math.PI;
+        wrap(x, y, len, (wx, wy) => {
+          ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+          ctx.lineWidth = px(0.6);
+          ctx.beginPath();
+          ctx.moveTo(wx, wy);
+          let px2 = wx, py2 = wy, a = ang;
+          for (let k = 0; k < 5; k++) {
+            a += (Math.random() - 0.5) * 0.8;
+            px2 += Math.cos(a) * len / 5; py2 += Math.sin(a) * len / 5;
+            ctx.lineTo(px2, py2);
+          }
+          ctx.stroke();
+        });
+      }
+      // Slab joints ON the tile edges only. Drawn anywhere else they repeat at
+      // an obvious spacing; on the edge they line up with the next tile and read
+      // as one continuous grid of slabs the size of the texture itself.
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(0, 0, SIZE, px(1.2));
+      ctx.fillRect(0, 0, px(1.2), SIZE);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'; // lit lip beside the joint
+      ctx.fillRect(0, px(1.2), SIZE, px(0.8));
+      ctx.fillRect(px(1.2), 0, px(0.8), SIZE);
       break;
     }
     case '1TARMAC': { // paved run-off: like the road but lighter, patch seams
