@@ -198,13 +198,29 @@ export function buildPitStructures(
     m.vertices.push([p1[0], p1[1], z0], [p1[0], p1[1], z1], [p2[0], p2[1], z0], [p2[0], p2[1], z1]);
     addQuadToward(m.vertices, m.faces, b, b + 1, b + 3, b + 2, dir);
   };
+  // Garage BAYS. The facade used to be one unbroken wall with dark rectangles
+  // painted on it, so the "garages" were a picture of garages — a car could not
+  // drive into one. Each bay is now an actual opening: the front wall is left
+  // out across the doorway, a lintel spans above it, and side walls run back to
+  // the rear wall, giving a recess deep enough to pull into.
+  const DOOR_W = 5, DOOR_H = 3.4, BAY_STEP = 8;
+  const doors: [number, number][] = [];
+  for (let d = z.boxA + 4; d < z.boxB - 6; d += BAY_STEP) doors.push([d, d + DOOR_W]);
+  const inDoor = (d: number) => doors.some(([a2, b2]) => d >= a2 && d <= b2);
+
   for (let n = 0; n < idx.length - 1; n++) {
     const i = idx[n], j = idx[n + 1];
     if (rel(j) - rel(i) > 6) continue; // wrap seam
     const [lx, ly] = perpLeft(samples[i].heading);
     const toLane: Vec3 = [-lx * sign, -ly * sign, 0]; // building front faces the lane
     const f1 = at(i, off0), f2 = at(j, off0);
-    emitQuadToward(building, f1, f2, f1[2], f1[2] + H, toLane); // front
+    const doorway = inDoor((rel(i) + rel(j)) / 2);
+    if (doorway) {
+      // opening: only the lintel above it
+      emitQuadToward(building, f1, f2, f1[2] + DOOR_H, f1[2] + H, toLane);
+    } else {
+      emitQuadToward(building, f1, f2, f1[2], f1[2] + H, toLane); // front
+    }
     const r1 = at(i, off0 + DEPTH), r2 = at(j, off0 + DEPTH);
     emitQuadToward(building, r1, r2, r1[2], r1[2] + H, [-toLane[0], -toLane[1], 0]); // rear
     // roof
@@ -214,18 +230,32 @@ export function buildPitStructures(
       [f2[0], f2[1], f2[2] + H], [r2[0], r2[1], r2[2] + H],
     );
     addQuadUp(building.vertices, building.faces, b, b + 1, b + 3, b + 2);
+    // ceiling over a bay, so you don't see daylight through the roof from inside
+    if (doorway) {
+      const cb = building.vertices.length;
+      building.vertices.push(
+        [f1[0], f1[1], f1[2] + DOOR_H], [r1[0], r1[1], r1[2] + DOOR_H],
+        [f2[0], f2[1], f2[2] + DOOR_H], [r2[0], r2[1], r2[2] + DOOR_H],
+      );
+      addQuadUp(building.vertices, building.faces, cb, cb + 1, cb + 3, cb + 2);
+    }
   }
-  // garage doors: dark quads slightly in front of the facade, every 8 m
-  for (let d = z.boxA + 4; d < z.boxB - 6; d += 8) {
-    let i0 = idx[0];
-    for (const i of idx) { if (rel(i) >= d) { i0 = i; break; } }
-    let i1 = i0;
-    for (const i of idx) { if (rel(i) >= d + 5) { i1 = i; break; } }
-    if (i1 === i0) continue;
-    const [lx, ly] = perpLeft(samples[i0].heading);
-    const toLane: Vec3 = [-lx * sign, -ly * sign, 0];
-    const g1 = at(i0, off0 - 0.06), g2 = at(i1, off0 - 0.06);
-    emitQuadToward(garage, g1, g2, g1[2], g1[2] + 3.2, toLane);
+
+  // Bay side walls (the dividers between garages) and the door at the back.
+  for (const [da, db] of doors) {
+    const pick = (d: number) => { let hit = idx[0]; for (const i of idx) { if (rel(i) >= d) { hit = i; break; } } return hit; };
+    const i0 = pick(da), i1 = pick(db);
+    if (i0 === i1) continue;
+    const fwd0: Vec3 = [Math.cos(samples[i0].heading), Math.sin(samples[i0].heading), 0];
+    for (const [i, dir] of [[i0, [-fwd0[0], -fwd0[1], 0] as Vec3], [i1, fwd0]] as [number, Vec3][]) {
+      const a = at(i, off0), b2 = at(i, off0 + DEPTH);
+      emitQuadToward(building, a, b2, a[2], a[2] + DOOR_H, dir);
+    }
+    // the roller door itself, at the BACK of the bay rather than on the facade
+    const [lx0, ly0] = perpLeft(samples[i0].heading);
+    const toLane0: Vec3 = [-lx0 * sign, -ly0 * sign, 0];
+    const g1 = at(i0, off0 + DEPTH - 0.08), g2 = at(i1, off0 + DEPTH - 0.08);
+    emitQuadToward(garage, g1, g2, g1[2], g1[2] + DOOR_H, toLane0);
   }
 
   // --- (3) painted pit-box lines on the lane --------------------------------

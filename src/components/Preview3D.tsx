@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { TrackProject } from '../types';
 import type { BuiltTrack, MeshData } from '../geometry';
 import { THEME_PALETTES, WALL_STYLE_COLORS, meshColor } from '../state/project';
+import { genTextureUrls } from '../export/textures';
 
 // VERTICAL EXAGGERATION (preview only — the exported track is never changed).
 // A real circuit is far wider than it is tall: Monza climbs about 8 m across a
@@ -22,6 +23,16 @@ function toGeometry(mesh: MeshData, vScale = 1): THREE.BufferGeometry {
     idx[i * 3] = f[0]; idx[i * 3 + 1] = f[1]; idx[i * 3 + 2] = f[2];
   });
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  // The preview needs UVs for the same reason the export does: without them a
+  // texture has nowhere to land. Mirrors the exporter's planar fallback (4 m per
+  // tile) so what you see here is mapped the way AC will map it.
+  const uv = new Float32Array(mesh.vertices.length * 2);
+  const hasUv = mesh.uvs && mesh.uvs.length === mesh.vertices.length;
+  mesh.vertices.forEach((v, i) => {
+    const u = hasUv ? mesh.uvs![i] : [v[0] / 4, v[1] / 4];
+    uv[i * 2] = u[0]; uv[i * 2 + 1] = u[1];
+  });
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   if (mesh.colors && mesh.colors.length === mesh.vertices.length) {
     const col = new Float32Array(mesh.colors.length * 3);
     mesh.colors.forEach((c, i) => {
@@ -42,6 +53,8 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
   const [vScale, setVScale] = useState(1);
   const vScaleRef = useRef(1);
+  const texCacheRef = useRef<Map<string, THREE.Texture>>(new Map());
+  const texKeyRef = useRef('');
   vScaleRef.current = vScale;
   const controlsRef = useRef<OrbitControls>(null);
   const builtRef = useRef(built);
@@ -233,6 +246,26 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
     const pal = THEME_PALETTES[project.meta.theme];
     scene.background = new THREE.Color(pal.background);
 
+    // Draw the real textures once per look (theme / wall style / which surfaces
+    // exist) — they are the same ones the export writes, so the preview shows
+    // the actual material rather than a flat colour. Cached because grass alone
+    // is ~17k blades to draw.
+    const texKey = `${project.meta.theme}|${project.walls.style}|${built.meshes.map((m) => m.name).join(',')}`;
+    if (texKeyRef.current !== texKey) {
+      texKeyRef.current = texKey;
+      for (const t of texCacheRef.current.values()) t.dispose();
+      texCacheRef.current.clear();
+      const urls = genTextureUrls(built, pal, project.meta.theme, project.walls.style);
+      const loader = new THREE.TextureLoader();
+      for (const [name, url] of urls) {
+        const t = loader.load(url);
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 8;
+        texCacheRef.current.set(name, t);
+      }
+    }
+
     for (const mesh of built.meshes) {
       if (mesh.faces.length === 0) continue;
       const side = mesh.name === '1WALL' || mesh.name.startsWith('DECOR') ? THREE.DoubleSide : THREE.FrontSide;
@@ -241,11 +274,19 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
         mesh.name === '1WALL'
           ? (WALL_STYLE_COLORS[project.walls.style] ?? pal.wall)
           : meshColor(mesh.name, pal);
+      const map = texCacheRef.current.get(mesh.name.replace(/_\d+$/, '')) ?? null;
+      // Grass cards are cut-outs: without alpha testing they show as solid
+      // rectangles here exactly as they would in game.
+      const cutout = mesh.name.startsWith('DECOR_GRASSTUFT');
       const mat = new THREE.MeshStandardMaterial({
-        color: vc ? '#ffffff' : baseColor,
-        vertexColors: vc,
+        // A texture already carries the colour; tinting it again just muddies it.
+        color: map ? '#ffffff' : (vc ? '#ffffff' : baseColor),
+        map,
+        vertexColors: vc && !map,
+        transparent: cutout,
+        alphaTest: cutout ? 0.35 : 0,
         roughness: 0.95,
-        side,
+        side: cutout ? THREE.DoubleSide : side,
       });
       group.add(new THREE.Mesh(toGeometry(mesh, vScaleRef.current), mat));
     }

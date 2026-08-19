@@ -44,6 +44,52 @@ function paintQuad(
   addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, dir);
 }
 
+// A braking board: a solid white prism with the distance printed on the faces
+// the driver sees. This used to be a flat panel on a post — a road sign, not a
+// marker board — and worse, its UVs picked the distance out of the texture along
+// U while the texture stacked the numbers along V, so every board sampled a
+// vertical slice across all three and came out as meaningless black blocks.
+// Here the faces toward and away from traffic take that distance's band of the
+// texture, and the sides/top take a plain white column of it.
+function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: number, band: number): void {
+  const HW = 0.75;   // half width across the track
+  const HD = 0.22;   // half depth along it
+  const H = 1.15;    // height
+  const WHITE: Vec3 = [1, 1, 1];
+  const fx = Math.cos(heading), fy = Math.sin(heading);   // along travel
+  const lx = -fy, ly = fx;                                // across travel
+  const v0 = band / 3, v1 = (band + 1) / 3;
+  const NUM: [number, number] = [0.12, 1.0];  // where the numeral is drawn
+  const PLAIN: [number, number] = [0.0, 0.08]; // blank white, for the sides
+
+  // corners of the footprint
+  const c = (a: number, b: number): [number, number] =>
+    [cx + lx * HW * a + fx * HD * b, cy + ly * HW * a + fy * HD * b];
+  const p00 = c(-1, -1), p10 = c(1, -1), p11 = c(1, 1), p01 = c(-1, 1);
+
+  const face = (a: [number, number], bb: [number, number], u: [number, number], outward: Vec3) => {
+    const base = m.vertices.length;
+    m.vertices.push([a[0], a[1], z0], [a[0], a[1], z0 + H], [bb[0], bb[1], z0], [bb[0], bb[1], z0 + H]);
+    for (let k = 0; k < 4; k++) m.colors!.push(WHITE);
+    // v runs DOWN the texture band so the numeral is upright on the board
+    m.uvs!.push([u[0], v1], [u[0], v0], [u[1], v1], [u[1], v0]);
+    addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, outward);
+  };
+  // the two faces a driver reads, then the blank sides
+  face(p00, p10, NUM, [-fx, -fy, 0]);
+  face(p11, p01, NUM, [fx, fy, 0]);
+  face(p10, p11, PLAIN, [lx, ly, 0]);
+  face(p01, p00, PLAIN, [-lx, -ly, 0]);
+  // top cap
+  const base = m.vertices.length;
+  for (const q of [p00, p10, p11, p01]) {
+    m.vertices.push([q[0], q[1], z0 + H]);
+    m.colors!.push(WHITE);
+    m.uvs!.push([PLAIN[0], v0]);
+  }
+  addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
+}
+
 // Axis-aligned box (poles, pillars): 4 sides + top, single colour, planar UVs.
 function paintBox(m: MeshData, cx: number, cy: number, z0: number, z1: number, half: number, col: Vec3): void {
   const c: [number, number][] = [
@@ -378,7 +424,6 @@ export function buildDecor(
 
   // --- Brake marker boards: 100/50/25 m before every corner, outside edge ---
   const marker = mesh('DECOR_MARKER');
-  const POST: Vec3 = [0.55, 0.57, 0.6];
   const nearestSample = (d: number): number => {
     let bi = 0, bd = Infinity;
     for (let i = 0; i < samples.length; i++) {
@@ -389,6 +434,10 @@ export function buildDecor(
   };
   for (const span of spans) {
     if (span.kind !== 'corner') continue;
+    // Braking boards stand on the SAME side as the corner's entry kerb — the
+    // outside of the turn, which is the side the driver is looking at on the way
+    // in. Two metres past the track edge: close enough to read at speed, far
+    // enough that running wide doesn't hit them.
     const outside: 'left' | 'right' = span.dir === 'left' ? 'right' : 'left';
     const sign = outside === 'left' ? 1 : -1;
     for (const back of [100, 50, 25]) {
@@ -396,19 +445,9 @@ export function buildDecor(
       if (d < 3) continue;
       const i = nearestSample(d);
       const s = samples[i];
-      const off = width / 2 + Math.min(6, Math.max(1.5, resolved[i][outside].width * 0.4)) + 0.6;
-      const b = offsetPoint(s, off * sign);
-      // post + a panel facing the oncoming driver (normal = -travel)
-      paintBox(marker, b[0], b[1], b[2], b[2] + 1.1, 0.06, POST);
-      const [px2, py2] = perpLeft(s.heading);
-      const hw = 0.55;
-      const a1: Vec3 = [b[0] - px2 * hw, b[1] - py2 * hw, 0];
-      const a2: Vec3 = [b[0] + px2 * hw, b[1] + py2 * hw, 0];
-      const fwd: Vec3 = [-Math.cos(s.heading), -Math.sin(s.heading), 0];
-      // texture v-band encodes the distance (100=top third, 50=mid, 25=bottom)
+      const b = offsetPoint(s, (width / 2 + 2.0) * sign);
       const band = back === 100 ? 0 : back === 50 ? 1 : 2;
-      paintQuad(marker, a1, a2, b[2] + 1.1, b[2] + 1.9, [1, 1, 1], fwd, [band / 3, (band + 1) / 3]);
-      paintQuad(marker, a2, a1, b[2] + 1.1, b[2] + 1.9, [1, 1, 1], [-fwd[0], -fwd[1], 0], [band / 3, (band + 1) / 3]);
+      numberBlock(marker, b[0], b[1], b[2], s.heading, band);
     }
   }
 

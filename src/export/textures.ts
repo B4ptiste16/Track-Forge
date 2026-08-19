@@ -499,24 +499,31 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       break;
     }
     case 'DECOR_MARKER': {
-      // three horizontal bands (v = distance): 100 m, 50 m, 25 m, each a white
-      // board with descending black chevrons so the count reads as the distance.
+      // Braking boards: three bands stacked in V — 100, 50, 25 — each a white
+      // board with the DISTANCE ON IT. It used to draw black chevron blocks,
+      // which told a driver nothing and (because the geometry sampled these
+      // along U) rendered as meaningless dark blocks anyway.
+      // The left edge of every band is left blank: the sides of the block map
+      // there, so only the faces the driver reads carry a numeral.
       const third = SIZE / 3;
-      const counts = [3, 2, 1]; // top band = furthest (3 chevrons) ... 1 nearest
+      const labels = ['100', '50', '25'];
       for (let bnd = 0; bnd < 3; bnd++) {
         const y0 = bnd * third;
-        ctx.fillStyle = '#f4f4f4';
+        ctx.fillStyle = '#f6f6f4';
         ctx.fillRect(0, y0, SIZE, third);
-        ctx.fillStyle = '#111';
-        const nC = counts[bnd];
-        const cw = SIZE / (nC * 2 + 1);
-        for (let k = 0; k < nC; k++) {
-          const x = cw * (k * 2 + 1);
-          ctx.fillRect(x, y0 + 10, cw, third - 20);
-        }
-        ctx.strokeStyle = '#111'; ctx.lineWidth = 4;
-        ctx.strokeRect(2, y0 + 2, SIZE - 4, third - 4);
+        // faint panel edge, kept inside the numbered area
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+        ctx.lineWidth = px(1.5);
+        ctx.strokeRect(SIZE * 0.14, y0 + px(4), SIZE * 0.83, third - px(8));
+        ctx.fillStyle = '#15171a';
+        ctx.font = `bold ${Math.round(third * 0.66)}px Arial, Helvetica, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // centred within the numbered region (u 0.12..1), not the whole tile
+        ctx.fillText(labels[bnd], SIZE * 0.56, y0 + third / 2);
       }
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
       break;
     }
     case 'DECOR_GANTRY': {
@@ -648,6 +655,19 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
 
 // One PNG per surface present in the track. Textures live NEXT TO the fbx so
 // KsEditor's persistence auto-load finds them (same layout RTB uses).
+// The same textures the export writes, kept as data URLs so the in-app preview
+// can show the real material instead of a flat colour. Sharing one drawing path
+// means the preview cannot drift from what Assetto Corsa ends up with.
+export function genTextureUrls(built: BuiltTrack, pal: Palette, theme: Theme, wallStyle: WallStyle): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of built.meshes) {
+    const base = m.name.replace(/_\d+$/, '');
+    if (out.has(base)) continue;
+    out.set(base, drawTexture(base, meshColor(base, pal), theme, wallStyle));
+  }
+  return out;
+}
+
 export function genTextures(built: BuiltTrack, pal: Palette, theme: Theme, wallStyle: WallStyle): TexFile[] {
   const seen = new Set<string>();
   const out: TexFile[] = [];

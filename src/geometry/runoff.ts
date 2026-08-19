@@ -545,12 +545,14 @@ export function buildRunoff(
         // completely stick, lose control"); a solid box has a clean continuous
         // track-facing face plus a back face, so the car slides along it and
         // can't clip through and get stuck. Thickness varies by barrier type.
+        // Real barriers are substantial objects, not panels. These were thin
+        // enough to read as sheets stood on edge from inside the car.
         const thick =
-          walls.style === 'tecpro' ? 1.0
+          walls.style === 'tecpro' ? 1.2
             : walls.style === 'blocks' ? BLOCK_THICK
-              : walls.style === 'hay' ? 0.6
-                : walls.style === 'armco' ? 0.3
-                  : 0.4; // solid concrete
+              : walls.style === 'hay' ? 0.85
+                : walls.style === 'armco' ? 0.45 // rail + the posts behind it
+                  : 0.65; // solid concrete
         emitWallBox(wall, oA, oB, inward, walls.height, thick, uA, uB);
       }
     }
@@ -605,7 +607,7 @@ export function buildManualWalls(
 
 // Chunky barrier (tyre/poly blocks, TecPro): a contiguous box (thickness +
 // top) per segment, so it reads as a row of blocks. Still gapless for collision.
-const BLOCK_THICK = 0.7;
+const BLOCK_THICK = 0.85;
 function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number, uA: number, uB: number): void {
   const base = wall.vertices.length;
   const t: Vec3 = [inward[0] * thick, inward[1] * thick, 0];
