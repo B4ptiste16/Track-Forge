@@ -59,8 +59,13 @@ function makeEmpty(name: string, fr: Frame, lateral: number): EmptyData {
     fr.pos[2] + HEIGHT_ABOVE,
   ];
 
-  // Orthonormal basis: Zc = travel, Yc = up (orthogonalised), Xc = Yc x Zc.
-  const zc = fr.tangent;
+  // Orthonormal basis. Zc points AGAINST travel: in Assetto Corsa a spawn null
+  // faces its local -Z, so building the basis with Zc = travel spawned the whole
+  // grid — player and AI alike — pointing back down the circuit, even though the
+  // app's own preview showed the direction correctly. Flipping Zc here (rather
+  // than post-rotating in the exporter) keeps the basis orthonormal and
+  // right-handed, since Xc is derived from it below.
+  const zc: Vec3 = [-fr.tangent[0], -fr.tangent[1], -fr.tangent[2]];
   const upDot = zc[2];
   let yc: Vec3 = [-zc[0] * upDot, -zc[1] * upDot, 1 - zc[2] * upDot];
   yc = normalize(yc);

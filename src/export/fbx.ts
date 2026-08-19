@@ -76,7 +76,7 @@ const KN5_VERT_LIMIT = 60000; // headroom under 65535
 // A part's material is looked up by its BASE name, so "DECOR_TREE_part2" still
 // resolves to the tree material and texture.
 export function baseSurfaceName(name: string): string {
-  return name.replace(/_part\d+$/, '');
+  return name.replace(/_\d+$/, '');
 }
 
 /** Split a mesh whose vertex count exceeds what a KN5 mesh can index. Faces are
@@ -89,7 +89,10 @@ function splitForKn5(mesh: MeshData): MeshData[] {
   let remap = new Map<number, number>();
   const start = () => {
     cur = {
-      name: `${mesh.name}_part${parts.length + 1}`,
+      // AC names multiple objects of one surface 1GRASS_01, 1GRASS_02 … Using
+      // that form (rather than "_part1") keeps the surface keyword matching
+      // exactly what AC and ksEditor expect.
+      name: `${mesh.name}_${String(parts.length + 1).padStart(2, '0')}`,
       vertices: [], faces: [],
       ...(mesh.uvs ? { uvs: [] as [number, number][] } : {}),
       ...(mesh.colors ? { colors: [] as Vec3[] } : {}),
