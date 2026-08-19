@@ -81,7 +81,10 @@ function addTuft(m: MeshData, x: number, y: number, z: number, w: number, h: num
       [x - dx, y - dy, z + h] as Vec3,
     );
     // The whole card samples the whole texture, so each tuft shows a full clump.
-    m.uvs!.push([0, 1], [1, 1], [1, 0], [0, 0]);
+    // V=0 is the BOTTOM of the image (see the braking boards), and the tuft is
+    // drawn growing up from the bottom of its texture — so the card's base takes
+    // V=0. Reversed, the grass would have hung down from its tips.
+    m.uvs!.push([0, 0], [1, 0], [1, 1], [0, 1]);
     // Double-sided: one winding each way, so a card is never invisible from
     // behind (AC does not render backfaces).
     m.faces.push([b, b + 1, b + 2], [b, b + 2, b + 3]);

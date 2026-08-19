@@ -58,7 +58,13 @@ function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: n
   const WHITE: Vec3 = [1, 1, 1];
   const fx = Math.cos(heading), fy = Math.sin(heading);   // along travel
   const lx = -fy, ly = fx;                                // across travel
-  const v0 = band / 3, v1 = (band + 1) / 3;
+  // V runs from the BOTTOM of the texture up (the bollard proves this: its dark
+  // foot is drawn at the bottom of its image and appears at the bottom in game).
+  // The bands are drawn top-down on the canvas, so a band's place in V is
+  // measured from the other end — get this backwards and the numerals print
+  // upside down, which is exactly what happened.
+  const vTop = 1 - band / 3;          // top of this band, in V
+  const vBot = 1 - (band + 1) / 3;    // bottom of it
   const NUM: [number, number] = [0.12, 1.0];  // where the numeral is drawn
   const PLAIN: [number, number] = [0.0, 0.08]; // blank white, for the sides
 
@@ -71,8 +77,9 @@ function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: n
     const base = m.vertices.length;
     m.vertices.push([a[0], a[1], z0], [a[0], a[1], z0 + H], [bb[0], bb[1], z0], [bb[0], bb[1], z0 + H]);
     for (let k = 0; k < 4; k++) m.colors!.push(WHITE);
-    // v runs DOWN the texture band so the numeral is upright on the board
-    m.uvs!.push([u[0], v1], [u[0], v0], [u[1], v1], [u[1], v0]);
+    // vertex order is bottom, top, bottom, top — so the board's bottom takes the
+    // bottom of the band and its top the top, leaving the numeral upright.
+    m.uvs!.push([u[0], vBot], [u[0], vTop], [u[1], vBot], [u[1], vTop]);
     addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, outward);
   };
   // the two faces a driver reads, then the blank sides
@@ -85,7 +92,7 @@ function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: n
   for (const q of [p00, p10, p11, p01]) {
     m.vertices.push([q[0], q[1], z0 + H]);
     m.colors!.push(WHITE);
-    m.uvs!.push([PLAIN[0], v0]);
+    m.uvs!.push([PLAIN[0], vTop]);
   }
   addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
 }
