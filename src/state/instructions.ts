@@ -385,6 +385,13 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         p.decor = { ...(p.decor ?? { trees: 0, grandstands: false }), trees: v };
         ok(`trees = ${v}`); break;
       }
+      case 'GRASSTUFTS': {
+        const off = onOff(a[0]) === false;
+        const v = off ? 0 : num(a[0]);
+        if (v === null || v < 0 || v > 1) { err('GRASSTUFTS needs 0..1, or off'); break; }
+        p.decor = { ...(p.decor ?? { trees: 0, grandstands: false }), grassTufts: v };
+        ok(v > 0 ? `3D grass tufts at ${v}` : 'no grass tufts'); break;
+      }
       case 'GRANDSTANDS': {
         const on = onOff(a[0]);
         if (on === null) { err('GRANDSTANDS needs on|off'); break; }
@@ -593,6 +600,7 @@ SURFACE PATCHES — put run-off exactly where you want it
 
 SCENERY & SURFACE
   TREES <0..1>
+  GRASSTUFTS <0..1>|off        3D grass standing up on the verge (0.4-0.6 is plenty)
   GRANDSTANDS on|off
   LIGHTS <spacing_m>|off
   GRASSLIP <m>                    how far grass sits above the tarmac

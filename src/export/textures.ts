@@ -583,6 +583,32 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       for (let y = 0; y < SIZE; y += px(64)) ctx.fillRect(0, y, SIZE, px(2));
       break;
     }
+    case 'DECOR_GRASSTUFT': {
+      // A CLUMP of grass on a TRANSPARENT background. This is the one texture
+      // that must have alpha: the card is a rectangle, and everything that
+      // isn't a blade has to be cut away or you see a green sheet standing in
+      // the verge. Blades fan from the bottom centre so a card reads as one
+      // tuft growing out of the ground.
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      const [tr, tg, tb] = hexRgb(hex);
+      const rootY = SIZE * 0.99;
+      const draw = (count: number, lo: number, hi: number, dMin: number, dMax: number) => {
+        for (let i = 0; i < count; i++) {
+          const spread = (Math.random() - 0.5) * SIZE * 0.86;
+          const len = SIZE * (lo + Math.random() * (hi - lo));
+          const wid = px(1.6 + Math.random() * 2.4);
+          // blades splay outward more the further they start from the centre
+          const lean = (spread / (SIZE * 0.5)) * 0.55 + (Math.random() - 0.5) * 0.3;
+          const d = dMin + Math.random() * (dMax - dMin);
+          blade(ctx, SIZE / 2 + spread, rootY, len, wid,
+            lean, `rgb(${Math.max(0, tr + d)},${Math.max(0, tg + d)},${Math.max(0, tb + d)})`);
+        }
+      };
+      draw(150, 0.30, 0.55, -46, -26); // shaded inner blades
+      draw(210, 0.40, 0.75, -16, 10);  // the body of the tuft
+      draw(120, 0.50, 0.92, 16, 42);   // lit outer blades
+      break;
+    }
     case 'DECOR_TREE': {
       // Mottled foliage: clumps of light/dark leaves. Per-tree vertex colours
       // tint this, so one texture covers a whole varied treeline.

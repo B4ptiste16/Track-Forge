@@ -63,18 +63,24 @@ function usDate(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${h}:${p(d.getMinutes())}:${p(d.getSeconds())} ${ampm}`;
 }
 
+// Surfaces whose texture has cut-out alpha (grass cards). They need an
+// alpha-TESTED shader: without it AC draws the card's transparent area as solid
+// colour and the verge becomes a field of green rectangles.
+const ALPHA_TESTED = new Set(['mat_DECOR_GRASSTUFT']);
+
 function materialBlock(idx: number, name: string, texture: string): string {
   // ksAmbient/ksDiffuse tuned for tracks; the rest mirrors ksEditor defaults.
+  const cutout = ALPHA_TESTED.has(name);
   const vars: [string, number][] = [
-    ['ksAmbient', 0.4], ['ksDiffuse', 0.6], ['ksSpecular', 0.2],
-    ['ksSpecularEXP', 12], ['ksEmissive', 0], ['ksAlphaRef', 0],
+    ['ksAmbient', 0.4], ['ksDiffuse', 0.6], ['ksSpecular', cutout ? 0.05 : 0.2],
+    ['ksSpecularEXP', 12], ['ksEmissive', 0], ['ksAlphaRef', cutout ? 0.35 : 0],
   ];
   const lines = [
     `[MATERIAL_${idx}]`,
     `NAME=${name}`,
-    'SHADER=ksPerPixel',
+    `SHADER=${cutout ? 'ksPerPixelAT' : 'ksPerPixel'}`,
     'ALPHABLEND=0',
-    'ALPHATEST=0',
+    `ALPHATEST=${cutout ? 1 : 0}`,
     'DEPTHMODE=0',
     `VARCOUNT=${vars.length}`,
   ];

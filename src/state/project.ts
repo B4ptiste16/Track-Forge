@@ -59,6 +59,7 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_GANTRY') return '#b9bcc2';
   if (name === 'DECOR_LIGHTS') return '#111318';
   if (name === 'DECOR_TREE') return '#4a6b32'; // foliage base (vertex colours vary each tree)
+  if (name === 'DECOR_GRASSTUFT') return pal.grass ?? '#4f7a34'; // grass cards
   if (name === 'DECOR_MAST') return '#9aa0a8'; // floodlight pole
   if (name === 'DECOR_LAMP') return '#fff8e6'; // lamp head (reads as lit)
   return '#808080';
@@ -106,7 +107,7 @@ export function defaultProject(): TrackProject {
     manualWalls: [],
     wallGaps: [],
     surfaceDetail: { grassHeight: 0.06, gravelDepth: 0.07 },
-    decor: { trees: 0.4, grandstands: true, lightSpacing: 90 },
+    decor: { trees: 0.4, grandstands: true, lightSpacing: 90, grassTufts: 0.5 },
   };
 }
 

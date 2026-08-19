@@ -193,6 +193,10 @@ export interface DecorConfig {
   // Floodlight masts every N metres (0 = unlit circuit). Their light sources are
   // written for CSP — vanilla AC cannot light a track dynamically.
   lightSpacing?: number;
+  // 3D grass tufts on the verge (0 = flat texture only, 1 = dense). Real grass
+  // is geometry — a flat plane cannot look like grass from inside a car — so
+  // this scatters alpha-cut grass cards along grass verges. Costs vertices.
+  grassTufts?: number;
 }
 
 export interface TrackProject {

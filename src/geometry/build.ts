@@ -13,6 +13,7 @@ import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
 import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel } from './pitlane';
 import { buildBuildings } from './buildings';
 import { buildPatches } from './patches';
+import { buildGrassTufts } from './grassTufts';
 import {
   buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
   type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
@@ -293,6 +294,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const bldgs = buildBuildings(project.buildings ?? [], samples);
   // Hand-placed surface patches, merged with the aprons so they share materials.
   const patchMeshes = buildPatches(project.patches ?? [], samples);
+  // Grass that stands up out of the verge (alpha-cut cards) — the thing a flat
+  // ground texture fundamentally cannot do.
+  const tufts = buildGrassTufts(samples, width, resolved, project.decor?.grassTufts ?? 0);
 
   // Draw/export order: aprons first, then road/pit/lines/kerbs, walls, decor.
   for (const pm of patchMeshes) {
@@ -303,7 +307,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
     ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
-    esc.poly, esc.bollards, ...decor.meshes, pitDeco.building, pitDeco.garage, ...bldgs,
+    esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.building, pitDeco.garage, ...bldgs,
   ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own
