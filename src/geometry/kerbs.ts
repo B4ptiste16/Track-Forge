@@ -58,8 +58,15 @@ export function computeKerbInfo(
     const a = span.startDist;
     const b = span.endDist;
     const len = b - a;
-    const entryLen = Math.max(0, cfg?.entryLen ?? DEFAULT_ENTRY_LEN);
-    const exitLen = Math.max(0, cfg?.exitLen ?? DEFAULT_EXIT_LEN);
+    // DEFAULT kerb lengths scale with the corner instead of being a flat 25/30 m
+    // for everything. A hairpin and a 200 m sweeper are not kerbed the same: the
+    // entry kerb belongs where the car turns in and the exit kerb where it gets
+    // back on the power, and both of those scale with how long the corner is.
+    // Anything the sheet or the panels set explicitly still wins.
+    const autoEntry = Math.max(10, Math.min(60, len * 0.45));
+    const autoExit = Math.max(12, Math.min(80, len * 0.6));
+    const entryLen = Math.max(0, cfg?.entryLen ?? autoEntry);
+    const exitLen = Math.max(0, cfg?.exitLen ?? autoExit);
     // apex length is 100% free: centered mid-corner, it may extend well beyond
     // the corner onto the neighbouring straights (still on the inside).
     const apexLen = Math.max(0, cfg?.apexLen ?? len * 0.6);

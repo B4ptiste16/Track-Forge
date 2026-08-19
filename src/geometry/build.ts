@@ -12,6 +12,7 @@ import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
 import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel } from './pitlane';
 import { buildBuildings } from './buildings';
+import { buildPatches } from './patches';
 import {
   buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
   type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
@@ -290,8 +291,14 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const empties = buildEmpties(samples, project);
   const decor = buildDecor(project, samples, spans, width, resolved);
   const bldgs = buildBuildings(project.buildings ?? [], samples);
+  // Hand-placed surface patches, merged with the aprons so they share materials.
+  const patchMeshes = buildPatches(project.patches ?? [], samples);
 
   // Draw/export order: aprons first, then road/pit/lines/kerbs, walls, decor.
+  for (const pm of patchMeshes) {
+    const host = runoffMeshes.find((m) => m.name === pm.name);
+    if (host) mergeInto(host, pm); else runoffMeshes.push(pm);
+  }
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [

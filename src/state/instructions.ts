@@ -12,7 +12,7 @@
 // so one typo in a 200-line sheet doesn't cost you the whole circuit.
 import type {
   Building, BuildingKind, Direction, EscapeType, KerbType, Segment, StripCfg,
-  StripTexture, Theme, TrackProject, WallStyle,
+  PatchSurface, StripTexture, Theme, TrackProject, WallStyle,
 } from '../types';
 import { newSegId, newZoneId, syncCorners } from './project';
 import { buildCenterline } from '../geometry';
@@ -31,6 +31,7 @@ const ESCAPES: EscapeType[] = ['none', 'tarmac', 'sausage', 'slalom', 'gravel'];
 const WALL_STYLES: WallStyle[] = ['solid', 'armco', 'tecpro', 'blocks', 'hay'];
 const THEMES: Theme[] = ['tarmac_day', 'tarmac_dusk', 'desert', 'france'];
 const BUILDINGS: BuildingKind[] = ['offices', 'glass', 'brick', 'hangar'];
+const PATCH_SURFACES: PatchSurface[] = ['concrete', 'tarmac', 'gravel', 'grass', 'dirt'];
 
 const num = (s: string | undefined): number | null => {
   if (s === undefined) return null;
@@ -409,6 +410,48 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         p.surfaceDetail = { ...(p.surfaceDetail ?? { grassHeight: 0, gravelDepth: 0 }), gravelDepth: v };
         ok(`gravel depth = ${v} m`); break;
       }
+      // A patch of surface exactly where you say. PATCHAT places it beside a
+      // corner (no world coordinates needed) — the way to give a corner real
+      // run-off without letting an auto escape road decide anything.
+      case 'PATCH': {
+        const surf = oneOf(a[0], PATCH_SURFACES);
+        const x = num(a[1]), y = num(a[2]), w = num(a[3]), d = num(a[4]);
+        const rot = num(a[5]) ?? 0;
+        if (!surf || x === null || y === null || w === null || d === null) {
+          err(`PATCH needs <${PATCH_SURFACES.join('|')}> <x> <y> <w> <d> [rot_deg]`); break;
+        }
+        p.patches = [...(p.patches ?? []), {
+          id: `p${Date.now()}${(p.patches?.length ?? 0)}`, surface: surf, x, y, w, d, rot,
+        }];
+        ok(`patch ${surf} ${w}x${d} m at ${x},${y}`); break;
+      }
+      case 'PATCHAT': {
+        const i = num(a[0]);
+        const surf = oneOf(a[1], PATCH_SURFACES);
+        const w = num(a[2]), d = num(a[3]);
+        if (i === null || !surf || w === null || d === null) {
+          err(`PATCHAT needs <corner_index> <${PATCH_SURFACES.join('|')}> <along_m> <out_m> [outside|inside]`); break;
+        }
+        if (!corner(i)) break;
+        const { samples, spans } = buildCenterline(segs);
+        const span = spans.find((sp) => sp.kind === 'corner' && sp.cornerIndex === i);
+        if (!span) { err(`corner ${i} has no span`); break; }
+        const mid = samples.find((sm) => sm.dist >= (span.startDist + span.endDist) / 2) ?? samples[0];
+        const where = oneOf(a[4], ['outside', 'inside'] as const) ?? 'outside';
+        // the outside of a corner is the opposite hand to the turn
+        const outLeft = span.dir === 'right';
+        const toLeft = where === 'outside' ? outLeft : !outLeft;
+        const nx = -Math.sin(mid.heading), ny = Math.cos(mid.heading); // left normal
+        const sgn = toLeft ? 1 : -1;
+        const off = p.road.width / 2 + d / 2;   // sit just beyond the track edge
+        p.patches = [...(p.patches ?? []), {
+          id: `p${Date.now()}${(p.patches?.length ?? 0)}`, surface: surf,
+          x: mid.pos[0] + nx * off * sgn,
+          y: mid.pos[1] + ny * off * sgn,
+          w, d, rot: (mid.heading * 180) / Math.PI,
+        }];
+        ok(`patch ${surf} ${w}x${d} m on the ${where} of corner ${i}`); break;
+      }
       case 'BUILDING': {
         const kind = oneOf(a[0], BUILDINGS);
         const x = num(a[1]), y = num(a[2]), w = num(a[3]), d = num(a[4]), h = num(a[5]);
@@ -537,6 +580,16 @@ PIT
   PITLANE <entry_m> <exit_m> [width_m]
   PITBOXES <n>
   GRID <n>
+
+SURFACE PATCHES — put run-off exactly where you want it
+  Prefer these over escape roads. An escape road GUESSES where a car leaves the
+  track; a patch is placed. Give a corner real run-off by laying a patch on its
+  outside, and leave ESCAPE at none unless you specifically want a rejoining
+  escape lane.
+  PATCHAT <corner_index> <concrete|tarmac|gravel|grass|dirt> <along_m> <out_m> [outside|inside]
+      e.g.  PATCHAT 3 tarmac 90 30       90 m long, 30 m deep, outside turn 3
+            PATCHAT 5 gravel 60 25       gravel bed on the outside of turn 5
+  PATCH <surface> <x> <y> <w> <d> [rot_deg]     anywhere, in world coordinates
 
 SCENERY & SURFACE
   TREES <0..1>

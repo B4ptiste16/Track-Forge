@@ -104,6 +104,20 @@ export interface Building {
   kind?: BuildingKind; // facade style (default 'offices')
 }
 
+// A hand-placed patch of surface: paved run-off, a concrete apron, a gravel
+// bed — put exactly where you want it. Auto escape roads guess where a car
+// leaves the track and often guess badly; a patch is simply placed.
+export type PatchSurface = 'concrete' | 'tarmac' | 'gravel' | 'grass' | 'dirt';
+export interface SurfacePatch {
+  id: string;
+  surface: PatchSurface;
+  x: number;
+  y: number;   // native world XY (centre)
+  w: number;   // size along rot (m)
+  d: number;   // size across rot (m)
+  rot: number; // degrees, CCW
+}
+
 // An alternate track layout: everything shape-related, saved under a name.
 export interface SavedLayout {
   name: string;
@@ -211,6 +225,7 @@ export interface TrackProject {
   bridge: BridgeConfig;
   trackside: Trackside; // continuous side strips + zone overrides
   buildings: Building[]; // placeable decorative buildings
+  patches?: SurfacePatch[]; // hand-placed surface patches (run-off, aprons)
   layouts?: SavedLayout[]; // saved alternate layouts of this track
   runoffDefault?: SectionSide; // LEGACY (pre-trackside projects; migrated on load)
   runoff?: SectionRunoff[]; // LEGACY
