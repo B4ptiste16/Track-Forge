@@ -103,9 +103,13 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // reserve room — the runoff starts beyond the whole pit complex on the pit
   // side. Kerbs do NOT reserve room (grass runs to the road edge, kerb sits
   // flush on top) so the ground is continuous with no gaps between kerbs.
+  // The strip starts at the OUTER EDGE OF THE KERB, not at the road edge. Grass
+  // used to run underneath the kerb, and because the verge sits proud of the
+  // tarmac it came up through low kerbs — the kerb looked set back from the
+  // track with grass in between. A kerb belongs against the racing surface.
   const innerOffsets: SideOffset[] = samples.map((_, i) => ({
-    left: Math.max(pitInfo[i].left, pitComplexOuter(i, 'left')),
-    right: Math.max(pitInfo[i].right, pitComplexOuter(i, 'right')),
+    left: Math.max(pitInfo[i].left, pitComplexOuter(i, 'left'), kerbInfo[i].leftW),
+    right: Math.max(pitInfo[i].right, pitComplexOuter(i, 'right'), kerbInfo[i].rightW),
   }));
 
   // Per-sample, per-side mask: suppress the inside barrier around each corner —

@@ -11,7 +11,11 @@ export interface SideOffset {
 // A big flat grass plane under the whole track so there are never holes to fall
 // through (inside corners, beyond the runoff, etc.). It sits just below the
 // lowest point so the road/runoff always win the physics raycast (no quicksand).
-export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detail = 64): MeshData {
+// detail: grid cells across the site. 64 left ~38 m cells on a big circuit, and
+// over that span the ground could not follow the track's elevation closely
+// enough — you could step off the apron onto ground most of a metre lower. 128
+// halves the cell size. The mesh splitter handles the extra vertices.
+export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detail = 128): MeshData {
   if (samples.length < 2) return { name: '1GRASS', vertices: [], faces: [] };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of samples) {
@@ -47,7 +51,12 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
   // between the two it eases across so there is no ledge at the join.
   const nearR = 60;   // m — comfortably past the run-off aprons
   const farR = 220;   // m — fully "open country" beyond here
-  const sink = 0.35;  // m the ground sits under the racing surface
+  // Only just below the surface. This used to be 0.35 m, which meant that where
+  // the run-off apron ended the ground was a third of a metre lower — a step you
+  // could drive off, landing on "another layer of grass". The overlay is
+  // prevented by the hard ceiling below, not by sinking the whole field, so this
+  // only needs to be enough to stop z-fighting.
+  const sink = 0.05;  // m the ground sits under the racing surface
   let h = new Float64Array(nx * ny);
   // The highest this grid point may ever sit. Enforced AFTER smoothing, because
   // the smoothing passes average in higher neighbours and were quietly undoing

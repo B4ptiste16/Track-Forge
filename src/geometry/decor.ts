@@ -159,6 +159,7 @@ function buildLightMasts(
 // or the escape roads; spacing and size jitter keep it from looking planted.
 function buildTrees(
   m: MeshData, samples: CenterlineSample[], width: number, resolved: ResolvedSample[], density: number,
+  standZones: { side: 'left' | 'right'; from: number; to: number }[] = [],
 ): void {
   if (density <= 0 || samples.length < 4) return;
   let seed = 20260725;
@@ -170,6 +171,9 @@ function buildTrees(
       const s = samples[i];
       if (s.dist < next) continue;
       next = s.dist + spacing * (0.6 + rng() * 0.9);
+      // A grandstand already occupies this stretch on this side — skip it, with
+      // a margin so a tree isn't pressed up against the structure either.
+      if (standZones.some((z) => z.side === side && s.dist > z.from - 12 && s.dist < z.to + 12)) continue;
       const r = resolved[i][side];
       const clear = Math.max(r.width, r.wallDist ?? r.width) + 6 + rng() * 22; // beyond the barrier
       const [lx, ly] = perpLeft(s.heading);
@@ -305,6 +309,10 @@ export function buildDecor(
     return true;
   };
 
+  // Where a grandstand ends up, so the treeline can leave room for it — a tree
+  // growing through the seating is the sort of thing you only notice in-game.
+  const standZones: { side: 'left' | 'right'; from: number; to: number }[] = [];
+
   // --- Grandstands: longest straight + outside of turn 1 ------------------
   const straights = spans.filter((s) => s.kind === 'straight')
     .sort((a, b) => (b.endDist - b.startDist) - (a.endDist - a.startDist));
@@ -323,7 +331,10 @@ export function buildDecor(
       if (sub.length >= 2) {
         const mid = sub[Math.floor(sub.length / 2)];
         const off = clearOff(mid, side);
-        if (standAreaClear(sub, side, off)) buildStand(stand, frame, samples, sub, side, off, seats);
+        if (standAreaClear(sub, side, off)) {
+          buildStand(stand, frame, samples, sub, side, off, seats);
+          standZones.push({ side, from: samples[sub[0]].dist, to: samples[sub[sub.length - 1]].dist });
+        }
       }
     }
   }
@@ -333,7 +344,10 @@ export function buildDecor(
       const outside: 'left' | 'right' = t1.dir === 'left' ? 'right' : 'left';
       const mid = idx[Math.floor(idx.length / 2)];
       const off = clearOff(mid, outside) + 9;
-      if (standAreaClear(idx, outside, off)) buildStand(stand, frame, samples, idx, outside, off, seats);
+      if (standAreaClear(idx, outside, off)) {
+        buildStand(stand, frame, samples, idx, outside, off, seats);
+        standZones.push({ side: outside, from: samples[idx[0]].dist, to: samples[idx[idx.length - 1]].dist });
+      }
     }
   }
 
@@ -422,7 +436,7 @@ export function buildDecor(
 
   // Treeline outside the barriers (density from the circuit preset).
   const tree = mesh('DECOR_TREE');
-  buildTrees(tree, samples, width, resolved, project.decor?.trees ?? 0);
+  buildTrees(tree, samples, width, resolved, project.decor?.trees ?? 0, standZones);
 
   // Floodlight masts, so the circuit can be raced after dark. The geometry is
   // the visible fixture; the light itself is written to CSP's ext_config.ini.
