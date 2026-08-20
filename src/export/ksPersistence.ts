@@ -68,12 +68,25 @@ function usDate(d: Date): string {
 // colour and the verge becomes a field of green rectangles.
 const ALPHA_TESTED = new Set(['mat_DECOR_GRASSTUFT']);
 
+// Surfaces that GLOW. Vanilla AC has no dynamic track lights — that needs CSP —
+// so a floodlight mast on a machine without it is a pole that emits nothing.
+// An emissive material at least makes the lamp heads and the start lights read
+// as switched on after dark, which is the most vanilla can do. Values above 1
+// push them past the ambient so they still read at night.
+const EMISSIVE: Record<string, [number, number, number]> = {
+  mat_DECOR_LAMP: [3.0, 2.85, 2.5],    // warm floodlight
+  mat_DECOR_LIGHTS: [1.6, 1.5, 1.45],  // start-light housing
+};
+
 function materialBlock(idx: number, name: string, texture: string): string {
   // ksAmbient/ksDiffuse tuned for tracks; the rest mirrors ksEditor defaults.
   const cutout = ALPHA_TESTED.has(name);
-  const vars: [string, number][] = [
-    ['ksAmbient', 0.4], ['ksDiffuse', 0.6], ['ksSpecular', cutout ? 0.05 : 0.2],
-    ['ksSpecularEXP', 12], ['ksEmissive', 0], ['ksAlphaRef', cutout ? 0.35 : 0],
+  const glow = EMISSIVE[name];
+  // [name, float1, float3] — emissive is an RGB, everything else a scalar.
+  const vars: [string, number, [number, number, number]?][] = [
+    ['ksAmbient', glow ? 0.9 : 0.4], ['ksDiffuse', glow ? 0.2 : 0.6],
+    ['ksSpecular', cutout ? 0.05 : 0.2], ['ksSpecularEXP', 12],
+    ['ksEmissive', 0, glow ?? [0, 0, 0]], ['ksAlphaRef', cutout ? 0.35 : 0],
   ];
   const lines = [
     `[MATERIAL_${idx}]`,
@@ -84,8 +97,10 @@ function materialBlock(idx: number, name: string, texture: string): string {
     'DEPTHMODE=0',
     `VARCOUNT=${vars.length}`,
   ];
-  vars.forEach(([vn, v1], i) => {
-    lines.push(`VAR_${i}_NAME=${vn}`, `VAR_${i}_FLOAT1=${v1}`, `VAR_${i}_FLOAT2=0,0`, `VAR_${i}_FLOAT3=0,0,0`, `VAR_${i}_FLOAT4=0,0,0,0`);
+  vars.forEach(([vn, v1, f3], i) => {
+    const t = f3 ?? [0, 0, 0];
+    lines.push(`VAR_${i}_NAME=${vn}`, `VAR_${i}_FLOAT1=${v1}`, `VAR_${i}_FLOAT2=0,0`,
+      `VAR_${i}_FLOAT3=${t[0]},${t[1]},${t[2]}`, `VAR_${i}_FLOAT4=0,0,0,0`);
   });
   lines.push('RESCOUNT=1', 'RES_0_NAME=txDiffuse', 'RES_0_SLOT=0', `RES_0_TEXTURE=${texture}`);
   return lines.join('\r\n');
