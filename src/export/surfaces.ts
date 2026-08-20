@@ -3,6 +3,7 @@
 interface SurfaceOpts {
   friction: number;
   valid: number;
+  pitlane?: number; // AC logs KEY_NOT_FOUND for every surface without this
   sinHeight?: number; // bump height the physics feels (rumble)
   sinLength?: number;
   vibGain?: number; // controller vibration
@@ -21,6 +22,7 @@ WAV_PITCH=0
 FF_EFFECT=NULL
 DIRT_ADDITIVE=${o.dirt ?? 0}
 IS_VALID_TRACK=${o.valid}
+IS_PITLANE=${o.pitlane ?? 0}
 BLACK_FLAG_TIME=0
 SIN_HEIGHT=${o.sinHeight ?? 0}
 SIN_LENGTH=${o.sinLength ?? 0}
@@ -38,7 +40,7 @@ VIBRATION_LENGTH=${o.vibLength ?? 0}
     // Grass: slippery and it dirties the tyres, so a trip across it costs you
     // grip for the next corner too. A light SIN_* gives the verge some texture.
     block(3, 'GRASS', { friction: 0.6, valid: 0, dirt: 3, sinHeight: 0.012, sinLength: 0.7, vibGain: 0.35, vibLength: 1.0 }),
-    block(4, 'PIT', { friction: 0.9, valid: 1 }),
+    block(4, 'PIT', { friction: 0.9, valid: 1, pitlane: 1 }),
     // SAND (gravel trap): the car should PLOUGH, not skate. Low friction with a
     // strong dirt pickup (tyres cake up and stay slow for a while afterwards)
     // plus a coarse SIN_* so the surface visibly/physically drags and rumbles —

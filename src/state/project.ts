@@ -107,7 +107,7 @@ export function defaultProject(): TrackProject {
     manualWalls: [],
     wallGaps: [],
     surfaceDetail: { grassHeight: 0.06, gravelDepth: 0.07 },
-    decor: { trees: 0.4, grandstands: true, lightSpacing: 90, grassTufts: 0 },
+    decor: { trees: 0.4, grandstands: true, lightSpacing: 90, grassTufts: 0.5 },
   };
 }
 
