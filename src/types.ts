@@ -118,6 +118,18 @@ export interface SurfacePatch {
   rot: number; // degrees, CCW
 }
 
+// A trackside TV camera. AC cuts between these in replays and on F3; a track
+// without any gets one flat default view for the whole lap.
+export interface TrackCamera {
+  id: string;
+  dist: number;            // where along the lap it watches from (m)
+  side: 'left' | 'right';  // which side of the track it stands on
+  offset: number;          // metres out from the centreline
+  height: number;          // metres above the track
+  fov?: number;            // max field of view (smaller = more zoomed in)
+  name?: string;
+}
+
 // An alternate track layout: everything shape-related, saved under a name.
 export interface SavedLayout {
   name: string;
@@ -230,6 +242,7 @@ export interface TrackProject {
   trackside: Trackside; // continuous side strips + zone overrides
   buildings: Building[]; // placeable decorative buildings
   patches?: SurfacePatch[]; // hand-placed surface patches (run-off, aprons)
+  cameras?: TrackCamera[]; // trackside TV cameras (auto-placed when empty)
   layouts?: SavedLayout[]; // saved alternate layouts of this track
   runoffDefault?: SectionSide; // LEGACY (pre-trackside projects; migrated on load)
   runoff?: SectionRunoff[]; // LEGACY

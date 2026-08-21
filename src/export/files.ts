@@ -6,6 +6,7 @@ import { genFbx } from './fbx';
 import { genSurfacesIni } from './surfaces';
 import { genExtConfig, genGrassFx, genLightingIni } from './lighting';
 import { genTrackMap } from './trackMap';
+import { genCamerasIni } from './cameras';
 import { genUiTrack } from './uiTrack';
 import { genInstructions } from './instructions';
 import { genTextures } from './textures';
@@ -43,6 +44,9 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     { path: `${slug}.fbx.ini`, text: genKsPersistence(slug, fbxText, built, textures) },
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
     { path: 'data/lighting.ini', text: genLightingIni() },
+    // Broadcast cameras. Auto-placed around the lap when none were positioned
+    // by hand, so replays always cut like a race rather than sitting on one view.
+    { path: 'data/cameras.ini', text: genCamerasIni(built, project) },
     // map.png + map.ini are a PAIR: AC positions the car's dot on the image
     // using the ini, so they are always generated together from one shape.
     { path: 'map.png', bytes: map.mapPng },

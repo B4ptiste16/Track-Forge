@@ -459,6 +459,23 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         }];
         ok(`patch ${surf} ${w}x${d} m on the ${where} of corner ${i}`); break;
       }
+      // A trackside TV camera. Place them where you want the shots; leave them
+      // out entirely and the export places a set around the lap for you.
+      case 'CAMERA': {
+        const d = num(a[0]);
+        if (d === null || d < 0) {
+          err('CAMERA needs <dist_m> [left|right] [height_m] [offset_m] [fov]'); break;
+        }
+        const side = oneOf(a[1], ['left', 'right'] as const) ?? 'right';
+        p.cameras = [...(p.cameras ?? []), {
+          id: `cam${(p.cameras?.length ?? 0)}`,
+          dist: d, side,
+          height: num(a[2]) ?? 11,
+          offset: num(a[3]) ?? 32 + p.road.width / 2,
+          fov: num(a[4]) ?? 30,
+        }];
+        ok(`camera at ${d} m on the ${side}`); break;
+      }
       case 'BUILDING': {
         const kind = oneOf(a[0], BUILDINGS);
         const x = num(a[1]), y = num(a[2]), w = num(a[3]), d = num(a[4]), h = num(a[5]);
@@ -597,6 +614,13 @@ SURFACE PATCHES — put run-off exactly where you want it
       e.g.  PATCHAT 3 tarmac 90 30       90 m long, 30 m deep, outside turn 3
             PATCHAT 5 gravel 60 25       gravel bed on the outside of turn 5
   PATCH <surface> <x> <y> <w> <d> [rot_deg]     anywhere, in world coordinates
+
+TV CAMERAS
+  Leave these out and a set is placed around the lap automatically — on the
+  OUTSIDE of whatever the track is doing, which is where a real camera stands.
+  Add them only to art-direct particular shots.
+  CAMERA <dist_m> [left|right] [height_m] [offset_m] [fov]
+      e.g.  CAMERA 850 right 14 40 26     high and wide over the main straight
 
 SCENERY & SURFACE
   TREES <0..1>
