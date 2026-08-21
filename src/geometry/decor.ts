@@ -82,9 +82,12 @@ function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: n
     m.uvs!.push([u[0], vBot], [u[0], vTop], [u[1], vBot], [u[1], vTop]);
     addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, outward);
   };
-  // the two faces a driver reads, then the blank sides
-  face(p00, p10, NUM, [-fx, -fy, 0]);
-  face(p11, p01, NUM, [fx, fy, 0]);
+  // The two faces a driver reads. Corner order matters: U has to increase from
+  // the viewer's LEFT to their RIGHT or the numeral comes out mirrored. The
+  // driver approaches against +travel, so their right is -lateral — which means
+  // this face runs from +lateral to -lateral, and the rear face the other way.
+  face(p10, p00, NUM, [-fx, -fy, 0]);
+  face(p01, p11, NUM, [fx, fy, 0]);
   face(p10, p11, PLAIN, [lx, ly, 0]);
   face(p01, p00, PLAIN, [-lx, -ly, 0]);
   // top cap

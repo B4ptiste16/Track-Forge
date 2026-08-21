@@ -62,9 +62,15 @@ function speckle(ctx: CanvasRenderingContext2D, count: number, size: [number, nu
     const v = light ? 255 : 0;
     ctx.fillStyle = `rgba(${v},${v},${v},${alpha * (0.4 + Math.random() * 0.6)})`;
     const r = size[0] + Math.random() * (size[1] - size[0]);
-    ctx.beginPath();
-    ctx.arc(Math.random() * SIZE, Math.random() * SIZE, r, 0, Math.PI * 2);
-    ctx.fill();
+    const x = Math.random() * SIZE, y = Math.random() * SIZE;
+    // Wrapped: an unwrapped dot is sliced in half at the tile edge, and that
+    // slice repeats across the ground as a line. speckle feeds concrete, road,
+    // tarmac and gravel, so this was a seam on all of them.
+    wrap(x, y, r + 1, (wx, wy) => {
+      ctx.beginPath();
+      ctx.arc(wx, wy, r, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 }
 
@@ -267,15 +273,11 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
           ctx.stroke();
         });
       }
-      // Slab joints ON the tile edges only. Drawn anywhere else they repeat at
-      // an obvious spacing; on the edge they line up with the next tile and read
-      // as one continuous grid of slabs the size of the texture itself.
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
-      ctx.fillRect(0, 0, SIZE, px(1.2));
-      ctx.fillRect(0, 0, px(1.2), SIZE);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)'; // lit lip beside the joint
-      ctx.fillRect(0, px(1.2), SIZE, px(0.8));
-      ctx.fillRect(px(1.2), 0, px(0.8), SIZE);
+      // NO slab joints. They were drawn on the tile edges so neighbouring tiles
+      // would share one — but a hard dark line at every tile boundary is
+      // indistinguishable from a seam, which is precisely what it looked like.
+      // Cast concrete run-off is continuous anyway; its character comes from the
+      // blotches and cracks above, all of which wrap.
       break;
     }
     case '1TARMAC': { // paved run-off: like the road but lighter, patch seams
