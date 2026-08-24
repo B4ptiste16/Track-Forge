@@ -29,6 +29,22 @@ function setupAutoUpdate(win) {
   const send = (s) => { if (rendererReady && !win.isDestroyed()) win.webContents.send('update:status', s); };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Full downloads only. The differential (blockmap-delta) path rebuilds the new
+  // installer from the cached old one; here it produced a 0-byte temp file, so
+  // the update was found, "downloaded", and never installed — with nothing shown
+  // to the user because background failures don't raise a dialog. A full ~100 MB
+  // download is slower but actually completes.
+  autoUpdater.disableDifferentialDownload = true;
+  // Background update failures used to vanish entirely. Keep a plain-text log
+  // next to the app's data so there is something to read when it goes wrong.
+  const updLogPath = path.join(app.getPath('userData'), 'update.log');
+  const updLog = (level, msg) => {
+    try {
+      fs.appendFileSync(updLogPath, `${new Date().toISOString()} [${level}] ${msg}
+`);
+    } catch { /* logging must never break updating */ }
+  };
+  autoUpdater.logger = { info: (m) => updLog('info', m), warn: (m) => updLog('warn', m), error: (m) => updLog('error', m), debug: () => {} };
   autoUpdater.on('checking-for-update', () => send({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => send({ state: 'available', version: info.version }));
   autoUpdater.on('update-not-available', () => {
@@ -37,7 +53,8 @@ function setupAutoUpdate(win) {
     manualCheck = false;
   });
   autoUpdater.on('error', (e) => {
-    send({ state: 'error', message: String(e) });
+    updLog('error', String((e && e.stack) || e));
+    send({ state: 'error', message: String((e && e.message) || e) });
     if (manualCheck) dialog.showMessageBox(win, { type: 'error', message: 'Update check failed:\n' + String(e), buttons: ['OK'] });
     manualCheck = false;
   });

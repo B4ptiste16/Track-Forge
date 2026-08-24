@@ -30,7 +30,7 @@ export function DesktopBar({ project }: { project: TrackProject }) {
       else if (u.state === 'downloading') setStatus(`Downloading update… ${u.percent ?? 0}%`);
       else if (u.state === 'downloaded') setStatus('Update ready — restart to install.');
       else if (u.state === 'none') setStatus('Up to date.');
-      else if (u.state === 'error') setStatus('Update check failed.');
+      else if (u.state === 'error') setStatus(`Update failed: ${u.message ?? 'unknown error'}`);
     });
   }, []);
 
