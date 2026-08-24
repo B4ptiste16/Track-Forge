@@ -254,7 +254,7 @@ export default function App() {
       )}
       <header className="toolbar">
         <button onClick={() => setView('home')} title="Back to home">⌂</button>
-        <div className="brand">🏁 AC BAPTOU</div>
+        <div className="brand">AC BAPTOU</div>
         <div className="tb-group">
           <button onClick={() => { setProject(defaultProject()); setCustomize(false); }}>New</button>
           <button onClick={() => downloadProjectJson(project)}>Save project</button>
@@ -283,7 +283,7 @@ export default function App() {
           </select>
           <button onClick={saveLayoutAs} title="Save the current shape as a named layout">Save layout</button>
           <span className="muted autosave-note">{savedAt ? `saved ${new Date(savedAt).toLocaleTimeString()}` : desktop ? "autosaves as you work" : ""}</span>
-          <button onClick={() => setShowInstr(true)} title="Build a whole circuit from a written list of commands (AI-generatable)">📝 From instructions</button>
+          <button onClick={() => setShowInstr(true)} title="Build a whole circuit from a written list of commands (AI-generatable)">Build from instructions</button>
           {layouts.length > 0 && (
             <button
               className="danger"
