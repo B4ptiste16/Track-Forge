@@ -15,7 +15,11 @@ export interface SideOffset {
 // over that span the ground could not follow the track's elevation closely
 // enough — you could step off the apron onto ground most of a metre lower. 128
 // halves the cell size. The mesh splitter handles the extra vertices.
-export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detail = 128): MeshData {
+// `placed` = every surface deliberately laid inside the barriers (road, kerbs,
+// pit, run-off aprons, patches). The terrain has to sit under ALL of it, not
+// just under the centreline — capping against the track alone left grass poking
+// up through the concrete and gravel aprons beside it.
+export function buildGroundPlane(samples: CenterlineSample[], placed: MeshData[] = [], margin = 80, detail = 128): MeshData {
   if (samples.length < 2) return { name: '1GRASS', vertices: [], faces: [] };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of samples) {
@@ -66,6 +70,48 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
   // laid over the tarmac. Cap against the lowest track height within a cell of
   // the vertex instead; a cell-sized radius is what interpolation can reach.
   const capR2 = (dx * dx + dy * dy); // (one cell diagonal)^2
+
+  // Lowest placed-surface height per grid cell. A triangle contributes its own
+  // lowest corner to every cell its bounding box touches — deliberately
+  // pessimistic, since being a little too low is invisible (it is covered) while
+  // being too high is the bug we are fixing.
+  const placedMin = new Float64Array(nx * ny).fill(Infinity);
+  for (const m of placed) {
+    for (const f of m.faces) {
+      const A = m.vertices[f[0]], B = m.vertices[f[1]], C = m.vertices[f[2]];
+      if (!A || !B || !C) continue;
+      const zMin = Math.min(A[2], B[2], C[2]);
+      const gi0 = Math.max(0, Math.floor((Math.min(A[0], B[0], C[0]) - x0) / dx));
+      const gi1 = Math.min(nx - 1, Math.ceil((Math.max(A[0], B[0], C[0]) - x0) / dx));
+      const gj0 = Math.max(0, Math.floor((Math.min(A[1], B[1], C[1]) - y0) / dy));
+      const gj1 = Math.min(ny - 1, Math.ceil((Math.max(A[1], B[1], C[1]) - y0) / dy));
+      for (let j = gj0; j <= gj1; j++) {
+        for (let i = gi0; i <= gi1; i++) {
+          const k = j * nx + i;
+          if (zMin < placedMin[k]) placedMin[k] = zMin;
+        }
+      }
+    }
+  }
+  // Dilate by one cell: the ground is interpolated across a cell, so a vertex
+  // must clear whatever is laid in the cells it helps span.
+  const placedCap = new Float64Array(nx * ny).fill(Infinity);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      let lo = Infinity;
+      // 2 cells, not 1: a ground triangle spans a cell, and its vertices must
+      // clear anything laid anywhere that triangle reaches.
+      for (let b = -2; b <= 2; b++) {
+        for (let a = -2; a <= 2; a++) {
+          const ii = i + a, jj = j + b;
+          if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+          const v = placedMin[jj * nx + ii];
+          if (v < lo) lo = v;
+        }
+      }
+      placedCap[j * nx + i] = lo;
+    }
+  }
   let h = new Float64Array(nx * ny);
   // The highest this grid point may ever sit. Enforced AFTER smoothing, because
   // the smoothing passes average in higher neighbours and were quietly undoing
@@ -114,7 +160,11 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
         v = hugging * (1 - e) + idw * e;
       }
       h[j * nx + i] = v;
-      if (d < farR) capZ[j * nx + i] = Math.min(bestZ, capBase) - sink;
+      const pc = placedCap[j * nx + i];
+      if (d < farR || pc < Infinity) {
+        const trackCap = d < farR ? Math.min(bestZ, capBase) : Infinity;
+        capZ[j * nx + i] = Math.min(trackCap, pc) - sink;
+      }
     }
   }
   // A couple of box passes so the field rolls instead of faceting.
@@ -292,6 +342,79 @@ export function buildCornerFill(
     }
   }
   return [...bySurface.values()].filter((m) => m.faces.length > 0);
+}
+
+// Squared 2D distance from `p` to the closest edge of triangle `t`.
+function edgeDist2(p: Vec3, t: { a: Vec3; b: Vec3; c: Vec3 }): number {
+  const seg = (q: Vec3, r: Vec3): number => {
+    const vx = r[0] - q[0], vy = r[1] - q[1];
+    const wx = p[0] - q[0], wy = p[1] - q[1];
+    const L = vx * vx + vy * vy;
+    const u = L > 1e-12 ? Math.max(0, Math.min(1, (wx * vx + wy * vy) / L)) : 0;
+    const dx = wx - vx * u, dy = wy - vy * u;
+    return dx * dx + dy * dy;
+  };
+  return Math.min(seg(t.a, t.b), seg(t.b, t.c), seg(t.c, t.a));
+}
+
+// Push `target`'s vertices under `blockers` wherever they overlap in plan.
+//
+// Run-off aprons (paved escape roads, concrete, gravel) are laid deliberately
+// and are meant to be visible. Grass is not clipped against them anywhere — the
+// verge is simply drawn across, and because it sits proud of the surface by
+// `grassHeight` it comes out ON TOP of the apron. Rather than teach every
+// producer about every other one, enforce the invariant once, at the end: grass
+// may never be higher than a placed surface it overlaps.
+//
+// The road, kerbs and pit lane are deliberately NOT blockers — the verge is
+// supposed to stand a few cm proud of the racing surface (that is the lip you
+// feel putting a wheel on it), and it only meets those at a shared edge anyway.
+export function clampUnder(target: MeshData, blockers: MeshData[], clearance = 0.02, pad = 2.0): number {
+  const CELL = 4;
+  type T = { a: Vec3; b: Vec3; c: Vec3 };
+  const grid = new Map<string, T[]>();
+  for (const m of blockers) {
+    for (const f of m.faces) {
+      const a = m.vertices[f[0]], b = m.vertices[f[1]], c = m.vertices[f[2]];
+      if (!a || !b || !c) continue;
+      const t: T = { a, b, c };
+      const gx0 = Math.floor(Math.min(a[0], b[0], c[0]) / CELL), gx1 = Math.floor(Math.max(a[0], b[0], c[0]) / CELL);
+      const gy0 = Math.floor(Math.min(a[1], b[1], c[1]) / CELL), gy1 = Math.floor(Math.max(a[1], b[1], c[1]) / CELL);
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (let gy = gy0; gy <= gy1; gy++) {
+          const k = `${gx},${gy}`;
+          let arr = grid.get(k);
+          if (!arr) { arr = []; grid.set(k, arr); }
+          arr.push(t);
+        }
+      }
+    }
+  }
+  if (!grid.size) return 0;
+  let moved = 0;
+  for (const v of target.vertices) {
+    const arr = grid.get(`${Math.floor(v[0] / CELL)},${Math.floor(v[1] / CELL)}`);
+    if (!arr) continue;
+    let lowest = Infinity;
+    for (const t of arr) {
+      const d = (t.b[1] - t.c[1]) * (t.a[0] - t.c[0]) + (t.c[0] - t.b[0]) * (t.a[1] - t.c[1]);
+      if (Math.abs(d) < 1e-9) continue;
+      const l1 = ((t.b[1] - t.c[1]) * (v[0] - t.c[0]) + (t.c[0] - t.b[0]) * (v[1] - t.c[1])) / d;
+      const l2 = ((t.c[1] - t.a[1]) * (v[0] - t.c[0]) + (t.a[0] - t.c[0]) * (v[1] - t.c[1])) / d;
+      const l3 = 1 - l1 - l2;
+      if (l1 < -0.001 || l2 < -0.001 || l3 < -0.001) {
+        // Outside the triangle — but a grass triangle that STRADDLES an apron
+        // edge has its vertices outside it while its interior bridges over the
+        // top. Accept vertices within `pad` of the edge so those get pulled
+        // down too; at the seam that is exactly the join we want anyway.
+        if (edgeDist2(v, t) > pad * pad) continue;
+      }
+      const z = l1 * t.a[2] + l2 * t.b[2] + l3 * t.c[2];
+      if (z < lowest) lowest = z;
+    }
+    if (lowest < Infinity && v[2] > lowest - clearance) { v[2] = lowest - clearance; moved++; }
+  }
+  return moved;
 }
 
 // Per-sample corner info (null on straights) used for the inside clamp.

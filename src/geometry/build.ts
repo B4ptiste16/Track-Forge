@@ -16,7 +16,7 @@ import { buildBuildings } from './buildings';
 import { buildPatches } from './patches';
 import { buildGrassTufts } from './grassTufts';
 import {
-  buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
+  buildRunoff, buildGroundPlane, buildManualWalls, buildCornerFill, clampUnder, computeCurvatureCap, computeOverlapCap, runoffSurfaceName,
   type SideOffset, type ResolvedSample, type ResolvedSide, type CornerAtSample, type CornerFill,
 } from './runoff';
 import { buildEscapes } from './escape';
@@ -312,7 +312,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
 
   // Fill the whole footprint with a base grass plane so there are no holes to
   // fall through. Merge it into the grass apron mesh (same surface).
-  const ground = buildGroundPlane(samples);
+  // Everything laid inside the barriers, so the terrain can be capped under all
+  // of it — not just under the track. Without the aprons here, grass came up
+  // through the concrete and gravel beside the circuit.
+  const placedSurfaces = [road, pit, kerb.base, kerb.hi, ...runoffMeshes.filter((m) => m.name !== '1GRASS' && m.name !== '1WALL')];
+  const ground = buildGroundPlane(samples, placedSurfaces);
   if (ground.faces.length) {
     const grassMesh = runoffMeshes.find((m) => m.name === '1GRASS');
     if (grassMesh) mergeInto(grassMesh, ground);
@@ -340,6 +344,17 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const host = runoffMeshes.find((m) => m.name === pm.name);
     if (host) mergeInto(host, pm); else runoffMeshes.push(pm);
   }
+  // Final invariant, applied once everything laid inside the barriers exists —
+  // including hand-placed patches, which are merged just above. Grass is drawn
+  // across escape roads and aprons and lifted by grassHeight, which put the
+  // verge ON TOP of the paved run-off; rather than teach every producer about
+  // every other one, push grass under whatever it overlaps, here, at the end.
+  const grassAll = runoffMeshes.find((m) => m.name === '1GRASS');
+  if (grassAll) {
+    const blockers = runoffMeshes.filter((m) => m.name === '1TARMAC' || m.name === '1CONCRETE' || m.name === '1SAND' || m.name === '1DIRT');
+    if (blockers.length) clampUnder(grassAll, blockers, 0.02, 2.0);
+  }
+
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
