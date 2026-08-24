@@ -59,12 +59,13 @@ function makeEmpty(name: string, fr: Frame, lateral: number): EmptyData {
     fr.pos[2] + HEIGHT_ABOVE,
   ];
 
-  // Orthonormal basis. Zc points AGAINST travel: in Assetto Corsa a spawn null
-  // faces its local -Z, so building the basis with Zc = travel spawned the whole
-  // grid — player and AI alike — pointing back down the circuit, even though the
-  // app's own preview showed the direction correctly. Flipping Zc here (rather
-  // than post-rotating in the exporter) keeps the basis orthonormal and
-  // right-handed, since Xc is derived from it below.
+  // Orthonormal basis, Zc ALONG travel. Measured from Kunos content rather than
+  // guessed: every AC_START node in magione.kn5 has local +Z dotted with the
+  // direction of travel of its own fast_lane.ai equal to +1.000, and local Y
+  // exactly (0,1,0). So a spawn null faces its local +Z. An earlier comment here
+  // claimed the opposite and negated Zc, which pointed the whole grid back down
+  // the circuit; while the export was also hitting gimbal lock that showed up as
+  // only HALF the grid being wrong, which masked the sign error.
   //
   // FLAT, i.e. yaw only — no pitch from the track's slope. Tilting the null to
   // follow the gradient made it a three-axis rotation, and the exporter writes
@@ -77,7 +78,7 @@ function makeEmpty(name: string, fr: Frame, lateral: number): EmptyData {
   // order. Cars spawn HEIGHT_ABOVE over the surface and settle onto it, so the
   // lost pitch costs nothing.
   const flatLen = Math.hypot(fr.tangent[0], fr.tangent[1]) || 1;
-  const zc: Vec3 = [-fr.tangent[0] / flatLen, -fr.tangent[1] / flatLen, 0];
+  const zc: Vec3 = [fr.tangent[0] / flatLen, fr.tangent[1] / flatLen, 0];
   const yc: Vec3 = [0, 0, 1];
   const xc = normalize(cross(yc, zc));
 
