@@ -57,6 +57,15 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
   // prevented by the hard ceiling below, not by sinking the whole field, so this
   // only needs to be enough to stop z-fighting.
   const sink = 0.05;  // m the ground sits under the racing surface
+  // The ceiling has to hold BETWEEN grid points, not just at them: the surface is
+  // linearly interpolated across a cell, and capping a vertex against only its
+  // NEAREST track sample fails twice over — the track can run lower inside the
+  // cell than at either capped corner, and where two parts of the circuit pass
+  // close at different heights the nearest sample may belong to the HIGHER one,
+  // so the ground ends up sitting above the lower one. Both show up as grass
+  // laid over the tarmac. Cap against the lowest track height within a cell of
+  // the vertex instead; a cell-sized radius is what interpolation can reach.
+  const capR2 = (dx * dx + dy * dy); // (one cell diagonal)^2
   let h = new Float64Array(nx * ny);
   // The highest this grid point may ever sit. Enforced AFTER smoothing, because
   // the smoothing passes average in higher neighbours and were quietly undoing
@@ -83,12 +92,15 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
       // good fraction of a metre above the closest actual point, which is how
       // terrain ended up poking through the racing surface. For grid points
       // that are actually near, re-find the nearest over every sample.
+      let capBase = Infinity;
       if (d < farR) {
         let d2 = Infinity, z = bestZ;
         for (const s of samples) {
           const ddx = x - s.pos[0], ddy = y - s.pos[1];
           const q = ddx * ddx + ddy * ddy;
           if (q < d2) { d2 = q; z = s.pos[2]; }
+          // LOWEST track height nearby, not just the nearest one — see capR.
+          if (q < capR2 && s.pos[2] < capBase) capBase = s.pos[2];
         }
         d = Math.sqrt(d2); bestZ = z;
       }
@@ -102,7 +114,7 @@ export function buildGroundPlane(samples: CenterlineSample[], margin = 80, detai
         v = hugging * (1 - e) + idw * e;
       }
       h[j * nx + i] = v;
-      if (d < farR) capZ[j * nx + i] = bestZ - sink;
+      if (d < farR) capZ[j * nx + i] = Math.min(bestZ, capBase) - sink;
     }
   }
   // A couple of box passes so the field rolls instead of faceting.
@@ -186,6 +198,9 @@ export interface CornerFill {
   dir: 'left' | 'right';
   surface: string; // mesh name: 1GRASS / 1SAND / 1CONCRETE
   depth: number; // how far in from the road edge to fill (m)
+  // Set when another part of the track runs through this corner's interior.
+  // The pie fill below would bury it under grass, so keep the ring instead.
+  noPie?: boolean;
 }
 
 // Clean infield fill for the inside of each corner: a concentric ring from the
@@ -218,7 +233,7 @@ export function buildCornerFill(
     // Fill from the edge inward by `depth`; if what would remain in the middle
     // is a sliver, fill all the way to the centre (pie) for a clean hairpin.
     const CORE_MIN = 8;
-    const toCentre = rIn - Math.max(0, Math.min(fl.depth, rIn)) < CORE_MIN;
+    const toCentre = !fl.noPie && rIn - Math.max(0, Math.min(fl.depth, rIn)) < CORE_MIN;
     const holdR = toCentre ? 0 : rIn - fl.depth;
 
     const mesh = get(fl.surface);

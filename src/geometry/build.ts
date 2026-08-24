@@ -7,6 +7,7 @@ import { makeHeightFn, smoothHeights } from './elevation';
 // with neither is just a place to fall off the world.
 const MIN_RUNOFF_M = 3;
 import { detectOverlaps, makeBridgeHeightFn } from './bridges';
+import { perpLeft } from './frames';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
@@ -251,10 +252,46 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     const cfg = project.corners.find((c) => c.cornerIndex === span.cornerIndex);
     const midCfg = stripAt((span.startDist + span.endDist) / 2, seg.dir);
     const insideType = cfg?.insideSurface ?? (midCfg.texture === 'gravel_spaced' ? 'gravel' : midCfg.texture);
+
+    // A corner's infield is only free real estate if no OTHER part of the track
+    // runs through it. On a loop-back (hairpin throat, a straight passing inside
+    // a long corner) it does, and an unclipped fill lays grass straight over the
+    // tarmac. Stop the fill short of whatever intrudes, and never close it into
+    // a pie when something is in there.
+    const spanIdx: number[] = [];
+    for (let i = 0; i < samples.length; i++) if (samples[i].segIndex === span.segIndex) spanIdx.push(i);
+    let depth = Math.max(6, midCfg.width);
+    let noPie = false;
+    if (spanIdx.length >= 2) {
+      const rIn = seg.radius - width / 2;
+      const sign = seg.dir === 'left' ? 1 : -1;
+      const mid = samples[spanIdx[Math.floor(spanIdx.length / 2)]];
+      const [lx, ly] = perpLeft(mid.heading);
+      const cx = mid.pos[0] + lx * seg.radius * sign;
+      const cy = mid.pos[1] + ly * seg.radius * sign;
+      const segAdjacent = (a: number, b: number) => {
+        let d = Math.abs(a - b);
+        if (closure.closed && project.segments.length > 0) d = Math.min(d, project.segments.length - d);
+        return d <= 1;
+      };
+      // Innermost radius the fill may reach: outside every intruder's own edge.
+      let holdR = 0;
+      for (let j = 0; j < samples.length; j++) {
+        if (segAdjacent(span.segIndex, Math.max(0, samples[j].segIndex))) continue;
+        const d = Math.hypot(samples[j].pos[0] - cx, samples[j].pos[1] - cy);
+        if (d >= rIn) continue; // that part is outside this corner
+        noPie = true;
+        holdR = Math.max(holdR, d + width / 2 + 1.0);
+      }
+      if (noPie) depth = Math.min(depth, Math.max(0, rIn - holdR));
+    }
+    if (depth < 0.5) continue; // nothing safe to fill here
+
     fills.push({
       span, radius: seg.radius, dir: seg.dir,
       surface: runoffSurfaceName(insideType as RunoffType),
-      depth: Math.max(6, midCfg.width),
+      depth,
+      noPie,
     });
   }
   for (const fm of buildCornerFill(samples, width, fills)) {
