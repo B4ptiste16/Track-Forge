@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useUndoable } from './state/useUndoable';
 import type { ChangeEvent } from 'react';
 import type { TrackProject, Segment } from './types';
 import { buildTrack, buildCenterline } from './geometry';
@@ -59,7 +60,25 @@ export default function App() {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
-  const [project, setProject] = useState<TrackProject>(() => defaultProject());
+  const { state: project, set: setProject, reset: resetProject, undo: undoProject, redo: redoProject } =
+    useUndoable<TrackProject>(() => defaultProject());
+
+  // Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) anywhere in the builder. Ignored while a
+  // text field has focus, so undo inside the instructions box stays the
+  // browser's own text undo rather than throwing away the whole track.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoProject(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoProject(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undoProject, redoProject]);
   const [customize, setCustomize] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>('track');
@@ -229,13 +248,13 @@ export default function App() {
     return (
       <TrackLibrary
         onHome={() => setView('home')}
-        onNew={() => { setProject(defaultProject()); setTrackId(null); setSavedAt(null); setView('build'); }}
+        onNew={() => { resetProject(defaultProject()); setTrackId(null); setSavedAt(null); setView('build'); }}
         onOpen={async (id) => {
           const r = await desktop!.trackLoad(id);
           if (!r.ok || !r.project) { alert(r.error || 'Could not open that track.'); return; }
           const p = withDefaults(r.project);
           p.corners = syncCorners(p.segments, p.corners ?? [], p.road.defaultKerb);
-          setProject(p); setTrackId(id); setSavedAt(Date.now()); setView('build');
+          resetProject(p); setTrackId(id); setSavedAt(Date.now()); setView('build');
         }}
       />
     );

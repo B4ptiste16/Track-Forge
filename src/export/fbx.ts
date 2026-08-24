@@ -32,6 +32,22 @@ const R_ZUP_TO_YUP = [
 // Euler (deg, FBX eEulerXYZ / Blender 'XYZ': R = Rx·Ry·Rz) from a rotation
 // matrix whose columns are the local axes.
 function basisToEulerXYZ(m: number[][]): Vec3 {
+  // Yaw-only fast path. Spawn nulls are a single rotation about the up axis, and
+  // that is exactly the case the generic decomposition below handles worst: a
+  // grid facing along X sits at ry = +/-90, where rx and rz fall out of
+  // atan2(~0, ~0) and carry only floating-point noise. Reading the yaw straight
+  // off the matrix is exact for every angle, and (0, yaw, 0) means the same
+  // thing in any Euler order — so a consumer that assumes ZYX still gets it
+  // right.
+  const yawOnly =
+    Math.abs(m[1][0]) < 1e-9 && Math.abs(m[1][2]) < 1e-9 &&
+    Math.abs(m[0][1]) < 1e-9 && Math.abs(m[2][1]) < 1e-9 &&
+    Math.abs(m[1][1] - 1) < 1e-9;
+  if (yawOnly) {
+    const d0 = 180 / Math.PI;
+    return [0, Math.atan2(m[0][2], m[2][2]) * d0, 0];
+  }
+
   const sy = Math.max(-1, Math.min(1, m[0][2]));
   const ry = Math.asin(sy);
   let rx: number, rz: number;

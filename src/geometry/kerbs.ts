@@ -63,13 +63,16 @@ export function computeKerbInfo(
     // entry kerb belongs where the car turns in and the exit kerb where it gets
     // back on the power, and both of those scale with how long the corner is.
     // Anything the sheet or the panels set explicitly still wins.
-    const autoEntry = Math.max(10, Math.min(60, len * 0.45));
-    const autoExit = Math.max(12, Math.min(80, len * 0.6));
+    // These were roughly half this long and read as stubby against the corner —
+    // a real entry kerb starts well before turn-in and the exit kerb runs a long
+    // way down the following straight while the car is still unwinding lock.
+    const autoEntry = Math.max(25, Math.min(120, len * 0.9));
+    const autoExit = Math.max(30, Math.min(150, len * 1.2));
     const entryLen = Math.max(0, cfg?.entryLen ?? autoEntry);
     const exitLen = Math.max(0, cfg?.exitLen ?? autoExit);
     // apex length is 100% free: centered mid-corner, it may extend well beyond
     // the corner onto the neighbouring straights (still on the inside).
-    const apexLen = Math.max(0, cfg?.apexLen ?? len * 0.6);
+    const apexLen = Math.max(0, cfg?.apexLen ?? len * 0.95);
     const apexFrom = a + len / 2 - apexLen / 2;
     const apexTo = a + len / 2 + apexLen / 2;
     // per-part widths (legacy kerbWidth as fallback)

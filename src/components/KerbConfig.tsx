@@ -92,9 +92,9 @@ export function KerbConfig({ project, customize, onCustomizeChange, onChange }: 
             <div className="kerb-parts">
               {(
                 [
-                  ['entry', 'entryW', 'entryLen', '25'],
-                  ['apex', 'apexW', 'apexLen', '60%'],
-                  ['exit', 'exitW', 'exitLen', '30'],
+                  ['entry', 'entryW', 'entryLen', 'auto'],
+                  ['apex', 'apexW', 'apexLen', 'auto'],
+                  ['exit', 'exitW', 'exitLen', 'auto'],
                 ] as [Part, 'entryW' | 'apexW' | 'exitW', 'entryLen' | 'apexLen' | 'exitLen', string][]
               ).map(([part, wKey, lKey, lPh]) => (
                 <div key={part} className="kerb-part">

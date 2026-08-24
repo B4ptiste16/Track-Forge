@@ -65,10 +65,20 @@ function makeEmpty(name: string, fr: Frame, lateral: number): EmptyData {
   // app's own preview showed the direction correctly. Flipping Zc here (rather
   // than post-rotating in the exporter) keeps the basis orthonormal and
   // right-handed, since Xc is derived from it below.
-  const zc: Vec3 = [-fr.tangent[0], -fr.tangent[1], -fr.tangent[2]];
-  const upDot = zc[2];
-  let yc: Vec3 = [-zc[0] * upDot, -zc[1] * upDot, 1 - zc[2] * upDot];
-  yc = normalize(yc);
+  //
+  // FLAT, i.e. yaw only — no pitch from the track's slope. Tilting the null to
+  // follow the gradient made it a three-axis rotation, and the exporter writes
+  // XYZ Euler angles: a grid pointing along the FBX X axis lands exactly on the
+  // XYZ gimbal singularity, where the X and Z angles come out of atan2(~0, ~0)
+  // and are numerically meaningless. Neighbouring slots then got decompositions
+  // 76 degrees apart for the same orientation, and any consumer using a
+  // different rotation order read half the grid as facing backwards. A yaw-only
+  // basis is one rotation about world up: stable, and identical in every Euler
+  // order. Cars spawn HEIGHT_ABOVE over the surface and settle onto it, so the
+  // lost pitch costs nothing.
+  const flatLen = Math.hypot(fr.tangent[0], fr.tangent[1]) || 1;
+  const zc: Vec3 = [-fr.tangent[0] / flatLen, -fr.tangent[1] / flatLen, 0];
+  const yc: Vec3 = [0, 0, 1];
   const xc = normalize(cross(yc, zc));
 
   // World matrix columns are the local axes; emit rows for Blender's Matrix().

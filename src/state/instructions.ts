@@ -569,12 +569,18 @@ PER-CORNER (corner_index counts corners only, from 0, in lap order)
   KERBS ARE FULLY YOURS TO SET — type, width and length, per corner and per
   part of the corner (entry / apex / exit). Pick them deliberately: a wide flat
   kerb is one a driver can put two wheels on, a tall sausage is one that will
-  unsettle the car. Typical widths 0.8-1.5 m; entry ~25 m, exit ~30 m, apex
-  runs through the corner itself.
+  unsettle the car. Typical widths 0.8-1.5 m. Kerbs should be GENEROUS — real
+  ones start well before turn-in and run a long way down the exit while the car
+  is still unwinding lock. Entry 40-90 m, exit 50-120 m, and the apex kerb
+  normally spans the whole arc and spills onto the straights either side. Short
+  kerbs look like stubs stuck on the corner. Omit the lengths entirely and the
+  builder scales them to the corner for you, which is usually the best choice.
   CORNERKERB <i> <entry> <apex> <exit>    kerb TYPE for each part of the corner
       none|painted|flat|serrated|ripple|sausage|tall|combo
   KERBSIZE <i> <width_m> [entry_len_m] [apex_len_m] [exit_len_m]
-      e.g.  KERBSIZE 3 1.2 25 60 30      1.2 m wide, 25 m in, 60 m through, 30 m out
+      Lengths are optional — leave them off and they scale with the corner.
+      e.g.  KERBSIZE 3 1.2               1.2 m wide, lengths auto (recommended)
+            KERBSIZE 3 1.2 60 140 80     explicit: 60 m in, 140 m through, 80 m out
   ESCAPEFURNITURE <i> bollards|kerbs|both|none [on|off]
       Escape roads carry edge bollards (and speed-bump kerbs on the 'sausage'
       type) by default. Turn them off for a clean paved run-off:
