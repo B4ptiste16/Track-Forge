@@ -760,41 +760,72 @@ const BLOCK_THICK = 0.85;
 // lets the wall alternate designs along its length and lets more be added later
 // by extending this list.
 // ---------------------------------------------------------------------------
+// Width:height of a trackside hoarding. The texture draws its artwork into a
+// band of this proportion and the wall maps exactly that band, so the advert is
+// never stretched however tall the barrier is.
+export const ADVERT_ASPECT = 4;
 export const ADVERT_MESHES = ['DECOR_ADVERT1', 'DECOR_ADVERT2', 'DECOR_ADVERT3', 'DECOR_ADVERT4'];
-const ADV_PERIOD = 13;   // m from the start of one hoarding to the next
-const ADV_LEN = 9;       // m of that taken up by the hoarding itself
 const ADV_MARGIN = 0.12; // m of bare wall left above and below
 const ADV_PROUD = 0.03;  // m the decal stands off the wall face
 
-// Emit the advert decal for one wall segment, if this stretch carries one.
+// A hoarding's LENGTH follows the wall's height, so the panel always has the
+// same proportion as the artwork drawn for it and the advert is never stretched.
+// They run back to back with no gap, which is how a barrier is actually dressed:
+// an unbroken run of boards, not signs dotted along a wall.
+function advertLen(wallHeight: number): number {
+  return Math.max(1.5, (wallHeight - 2 * ADV_MARGIN) * ADVERT_ASPECT);
+}
+
+// Emit the advert decal for one wall segment.
+//
+// A wall segment is roughly a metre long and a hoarding is several metres, so a
+// segment regularly straddles the join between two boards. Dropping those left a
+// bare stripe of barrier every few metres; instead the segment is SPLIT at the
+// join and each part is mapped into its own board.
 function emitAdvertDecal(
   meshes: Map<string, MeshData>, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number,
   distA: number, distB: number,
 ): void {
-  const spanA = Math.floor(distA / ADV_PERIOD);
-  if (spanA !== Math.floor(distB / ADV_PERIOD)) return; // straddles two hoardings
-  const startD = spanA * ADV_PERIOD;
-  const uA = (distA - startD) / ADV_LEN;
-  const uB = (distB - startD) / ADV_LEN;
-  if (uA < 0 || uB > 1) return;                          // in the gap between boards
-  const name = ADVERT_MESHES[Math.abs(spanA) % ADVERT_MESHES.length];
-  let m = meshes.get(name);
-  if (!m) { m = { name, vertices: [], faces: [], uvs: [] }; meshes.set(name, m); }
-  // The wall box runs from oA TOWARD the track by `thick`, so its track-facing
-  // surface is at oA + inward*thick — not at oA. Offsetting the other way put the
-  // hoardings on the back of the barrier, where the only thing that could read
-  // them was the scenery. Measured: the decal sat exactly 0.030 m the wrong side.
-  const d = thick + ADV_PROUD;
-  const o: Vec3 = [inward[0] * d, inward[1] * d, 0];
+  if (distB <= distA) return;                 // lap seam
+  const len = advertLen(h);
   const z0 = ADV_MARGIN, z1 = h - ADV_MARGIN;
   if (z1 <= z0) return;
-  const b = m.vertices.length;
-  m.vertices.push([oA[0] + o[0], oA[1] + o[1], oA[2] + z0]);
-  m.vertices.push([oA[0] + o[0], oA[1] + o[1], oA[2] + z1]);
-  m.vertices.push([oB[0] + o[0], oB[1] + o[1], oB[2] + z1]);
-  m.vertices.push([oB[0] + o[0], oB[1] + o[1], oB[2] + z0]);
-  m.uvs!.push([uA, 0], [uA, 1], [uB, 1], [uB, 0]);
-  addQuadToward(m.vertices, m.faces, b + 0, b + 1, b + 2, b + 3, inward);
+  // The wall box runs from its line TOWARD the track by `thick`, so the face a
+  // driver sees is at oA + inward*thick — not at oA.
+  const d = thick + ADV_PROUD;
+  const off: Vec3 = [inward[0] * d, inward[1] * d, 0];
+  const vLo = 0.5 - 0.5 / ADVERT_ASPECT;      // just the artwork band
+  const vHi = 0.5 + 0.5 / ADVERT_ASPECT;
+
+  const lerp = (t: number): Vec3 => [
+    oA[0] + (oB[0] - oA[0]) * t, oA[1] + (oB[1] - oA[1]) * t, oA[2] + (oB[2] - oA[2]) * t,
+  ];
+
+  let from = distA;
+  while (from < distB - 1e-6) {
+    const span = Math.floor(from / len);
+    const spanEnd = (span + 1) * len;
+    const to = Math.min(distB, spanEnd);
+    // Rounding can put the next boundary back ON the current position, which
+    // walks the loop forever. Always make progress.
+    if (to <= from + 1e-6) { from = spanEnd + 1e-6; continue; }
+    const tA = (from - distA) / (distB - distA);
+    const tB = (to - distA) / (distB - distA);
+    const pA = lerp(tA), pB = lerp(tB);
+    const uA = (from - span * len) / len;
+    const uB = (to - span * len) / len;
+    const name = ADVERT_MESHES[((span % ADVERT_MESHES.length) + ADVERT_MESHES.length) % ADVERT_MESHES.length];
+    let m = meshes.get(name);
+    if (!m) { m = { name, vertices: [], faces: [], uvs: [] }; meshes.set(name, m); }
+    const b = m.vertices.length;
+    m.vertices.push([pA[0] + off[0], pA[1] + off[1], pA[2] + z0]);
+    m.vertices.push([pA[0] + off[0], pA[1] + off[1], pA[2] + z1]);
+    m.vertices.push([pB[0] + off[0], pB[1] + off[1], pB[2] + z1]);
+    m.vertices.push([pB[0] + off[0], pB[1] + off[1], pB[2] + z0]);
+    m.uvs!.push([uA, vLo], [uA, vHi], [uB, vHi], [uB, vLo]);
+    addQuadToward(m.vertices, m.faces, b + 0, b + 1, b + 2, b + 3, inward);
+    from = to;
+  }
 }
 
 function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number, uA: number, uB: number): void {

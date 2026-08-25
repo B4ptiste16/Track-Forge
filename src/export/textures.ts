@@ -1,6 +1,7 @@
 import type { BuiltTrack } from '../geometry';
 import type { Theme, WallStyle } from '../types';
 import { meshColor, type Palette } from '../state/project';
+import { ADVERT_ASPECT } from '../geometry/runoff';
 import { KERB_PATTERNS } from '../geometry/kerbs';
 import { SEAT_PATTERNS } from '../geometry/decor';
 
@@ -532,11 +533,11 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
     case 'DECOR_ADVERT2':
     case 'DECOR_ADVERT3':
     case 'DECOR_ADVERT4': {
-      // ONE advert per texture, filling the tile. Each design is its own
-      // material so the wall can alternate between them along its length and so
-      // more can simply be added to the list — the boards used to stack four
-      // designs in one image, which meant every hoarding sampled a quarter of a
-      // tile and the app could never have more than four.
+      // The artwork is drawn into a BAND across the middle of the tile, not over
+      // the whole square, and the hoarding maps only that band. A hoarding is a
+      // long thin strip — roughly ADVERT_ASPECT to 1 — so a square texture
+      // stretched onto it pulled the wordmark sideways until it ran off the end
+      // of the sign. A band of the same proportion maps 1:1 and the advert fits.
       const idx = Number(surface.slice(-1)) - 1;
       const schemes: [string, string, string][] = [
         ['#101218', '#ffd24a', '#ffffff'], // dark with the app's accent
@@ -545,19 +546,21 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
         ['#f4f4f2', '#101218', '#454a57'], // light
       ];
       const [bg, fg, sub] = schemes[idx % schemes.length];
+      const band = SIZE / ADVERT_ASPECT;      // height of the artwork strip
+      const y0 = (SIZE - band) / 2;
       ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, SIZE, SIZE);
-      ctx.strokeStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillRect(0, 0, SIZE, SIZE);         // fill everything so bleed matches
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = px(3);
-      ctx.strokeRect(px(3), px(3), SIZE - px(6), SIZE - px(6));
+      ctx.strokeRect(px(3), y0 + px(3), SIZE - px(6), band - px(6));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = fg;
-      ctx.font = `bold ${Math.round(SIZE * 0.2)}px Arial, Helvetica, sans-serif`;
-      ctx.fillText('AC BAPTOU', SIZE / 2, SIZE * 0.42);
+      ctx.font = `bold ${Math.round(band * 0.44)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('AC BAPTOU', SIZE / 2, y0 + band * 0.40);
       ctx.fillStyle = sub;
-      ctx.font = `${Math.round(SIZE * 0.072)}px Arial, Helvetica, sans-serif`;
-      ctx.fillText('BUILD  •  DRIVE  •  TRAIN', SIZE / 2, SIZE * 0.66);
+      ctx.font = `${Math.round(band * 0.16)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('BUILD  •  DRIVE  •  TRAIN', SIZE / 2, y0 + band * 0.74);
       ctx.textAlign = 'start';
       ctx.textBaseline = 'alphabetic';
       break;
