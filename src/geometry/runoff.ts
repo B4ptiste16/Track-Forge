@@ -71,47 +71,45 @@ export function buildGroundPlane(samples: CenterlineSample[], placed: MeshData[]
   // the vertex instead; a cell-sized radius is what interpolation can reach.
   const capR2 = (dx * dx + dy * dy); // (one cell diagonal)^2
 
-  // Lowest placed-surface height per grid cell. A triangle contributes its own
-  // lowest corner to every cell its bounding box touches — deliberately
-  // pessimistic, since being a little too low is invisible (it is covered) while
-  // being too high is the bug we are fixing.
-  const placedMin = new Float64Array(nx * ny).fill(Infinity);
+  // Height of the placed surfaces AT each grid point — the surfaces that
+  // actually cover it, not merely ones nearby.
+  //
+  // This used to take the lowest placed height anywhere in a triangle's bounding
+  // box and then spread that over neighbouring cells. Near a slope, or where the
+  // circuit loops back past itself, "nearby" included surfaces metres lower, so
+  // the terrain was dragged down into a chasm at the track edge that you could
+  // see straight through. Testing whether the grid point is really under a
+  // triangle keeps the hug tight where something is laid on top and leaves the
+  // ground alone everywhere else.
+  const placedCap = new Float64Array(nx * ny).fill(Infinity);
   for (const m of placed) {
     for (const f of m.faces) {
       const A = m.vertices[f[0]], B = m.vertices[f[1]], C = m.vertices[f[2]];
       if (!A || !B || !C) continue;
-      const zMin = Math.min(A[2], B[2], C[2]);
       const gi0 = Math.max(0, Math.floor((Math.min(A[0], B[0], C[0]) - x0) / dx));
       const gi1 = Math.min(nx - 1, Math.ceil((Math.max(A[0], B[0], C[0]) - x0) / dx));
       const gj0 = Math.max(0, Math.floor((Math.min(A[1], B[1], C[1]) - y0) / dy));
       const gj1 = Math.min(ny - 1, Math.ceil((Math.max(A[1], B[1], C[1]) - y0) / dy));
+      const den = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+      if (Math.abs(den) < 1e-9) continue;
       for (let j = gj0; j <= gj1; j++) {
+        const py = y0 + j * dy;
         for (let i = gi0; i <= gi1; i++) {
+          const px = x0 + i * dx;
+          // barycentric, with a cell of slack so a point just outside a triangle
+          // still clears the surface its own cell helps span
+          const l1 = ((B[1] - C[1]) * (px - C[0]) + (C[0] - B[0]) * (py - C[1])) / den;
+          const l2 = ((C[1] - A[1]) * (px - C[0]) + (A[0] - C[0]) * (py - C[1])) / den;
+          const l3 = 1 - l1 - l2;
+          if (l1 < -0.35 || l2 < -0.35 || l3 < -0.35) continue;
+          const z = l1 * A[2] + l2 * B[2] + l3 * C[2];
           const k = j * nx + i;
-          if (zMin < placedMin[k]) placedMin[k] = zMin;
+          if (z < placedCap[k]) placedCap[k] = z;
         }
       }
     }
   }
-  // Dilate by one cell: the ground is interpolated across a cell, so a vertex
-  // must clear whatever is laid in the cells it helps span.
-  const placedCap = new Float64Array(nx * ny).fill(Infinity);
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      let lo = Infinity;
-      // 2 cells, not 1: a ground triangle spans a cell, and its vertices must
-      // clear anything laid anywhere that triangle reaches.
-      for (let b = -2; b <= 2; b++) {
-        for (let a = -2; a <= 2; a++) {
-          const ii = i + a, jj = j + b;
-          if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
-          const v = placedMin[jj * nx + ii];
-          if (v < lo) lo = v;
-        }
-      }
-      placedCap[j * nx + i] = lo;
-    }
-  }
+
   let h = new Float64Array(nx * ny);
   // The highest this grid point may ever sit. Enforced AFTER smoothing, because
   // the smoothing passes average in higher neighbours and were quietly undoing

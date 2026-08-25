@@ -352,7 +352,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const grassAll = runoffMeshes.find((m) => m.name === '1GRASS');
   if (grassAll) {
     const blockers = runoffMeshes.filter((m) => m.name === '1TARMAC' || m.name === '1CONCRETE' || m.name === '1SAND' || m.name === '1DIRT');
-    if (blockers.length) clampUnder(grassAll, blockers, 0.02, 2.0);
+    // pad 0: strict overlap only. A proximity margin also caught grass that
+    // legitimately BORDERS an apron — the 0.5 m verge of 'gravel_spaced' sits
+    // entirely within any margin, so the whole band got pushed under the gravel
+    // and left a gap you could see through.
+    if (blockers.length) clampUnder(grassAll, blockers, 0.02, 0);
   }
 
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');
