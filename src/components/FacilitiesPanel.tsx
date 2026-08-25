@@ -73,7 +73,7 @@ export function FacilitiesPanel({ project, built, onChange }: Props) {
           </label>
           <label className="checkbox">
             <input type="checkbox" checked={project.pit.paddock ?? true} onChange={(e) => pit({ paddock: e.target.checked })} />
-            Paddock beside the lane (track-day pit boxes on it)
+            Paddock — service yard behind the garages
           </label>
           <label className="checkbox">
             <input type="checkbox" checked={project.pit.structures ?? true} onChange={(e) => pit({ structures: e.target.checked })} />

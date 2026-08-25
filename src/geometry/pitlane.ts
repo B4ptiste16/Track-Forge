@@ -85,13 +85,21 @@ export function buildPitLane(
 // Paved paddock beside the pit lane over the full-width zone — where the
 // AC_PIT boxes live, so track-day/practice spawns feel like a real paddock.
 // Same 1PIT surface (drivable, valid) as the lane it extends.
+// Depth of the garage block, front wall to rear wall.
+export const GARAGE_DEPTH = 7;
+
 export function buildPaddock(
   samples: CenterlineSample[],
   project: TrackProject,
   width: number,
   depth: number,
 ): MeshData {
-  const mesh: MeshData = { name: '1PIT', vertices: [], faces: [] };
+  // A paddock is a service yard BEHIND the garages, not part of the pit lane.
+  // It used to be emitted into 1PIT and laid immediately beside the lane, which
+  // meant a wide apron of it counted as pit lane to AC (surfaces.ini marks 1PIT
+  // IS_PITLANE=1) — the game saw the whole complex as lane. It is concrete now,
+  // and it starts behind the garage block.
+  const mesh: MeshData = { name: '1CONCRETE', vertices: [], faces: [] };
   if (!project.pit.enabled || !(project.pit.paddock ?? true) || samples.length < 2) return mesh;
   const total = samples[samples.length - 1].dist;
   const z = pitZone(project, total);
@@ -111,8 +119,8 @@ export function buildPaddock(
       const s = samples[i];
       const [lx, ly] = perpLeft(s.heading);
       const edge = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
-      const o0 = project.pit.width * sign;
-      const o1 = (project.pit.width + depth) * sign;
+      const o0 = (project.pit.width + GARAGE_DEPTH) * sign;
+      const o1 = (project.pit.width + GARAGE_DEPTH + depth) * sign;
       return [
         [edge[0] + lx * o0, edge[1] + ly * o0, s.pos[2]],
         [edge[0] + lx * o1, edge[1] + ly * o1, s.pos[2]],
@@ -143,7 +151,6 @@ export function buildPitStructures(
   project: TrackProject,
   width: number,
   totalLength: number,
-  paddockDepth: number,
 ): PitStructures {
   const wall: MeshData = { name: '1WALL', vertices: [], faces: [], uvs: [] };
   const building: MeshData = { name: 'DECOR_PITBLDG', vertices: [], faces: [] };
@@ -191,8 +198,11 @@ export function buildPitStructures(
   }
 
   // --- (2) garage building along the outer edge of lane/paddock ------------
-  const off0 = project.pit.width + Math.max(0, paddockDepth);
-  const DEPTH = 7, H = 5;
+  // Directly behind the lane, which is where a pit building belongs — the boxes
+  // are on the lane in front of its doors. It used to sit beyond the paddock,
+  // with the boxes parked on the paddock between the two.
+  const off0 = project.pit.width;
+  const DEPTH = GARAGE_DEPTH, H = 5;
   const emitQuadToward = (m: MeshData, p1: Vec3, p2: Vec3, z0: number, z1: number, dir: Vec3) => {
     const b = m.vertices.length;
     m.vertices.push([p1[0], p1[1], z0], [p1[0], p1[1], z1], [p2[0], p2[1], z0], [p2[0], p2[1], z1]);

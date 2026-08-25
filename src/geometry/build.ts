@@ -11,7 +11,7 @@ import { perpLeft } from './frames';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
-import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel } from './pitlane';
+import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel, GARAGE_DEPTH } from './pitlane';
 import { buildBuildings } from './buildings';
 import { autoAdverts, buildProps } from './props';
 import { buildPatches } from './patches';
@@ -82,14 +82,11 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // BEYOND it on the pit side, or the runoff apron overlaps the pit ground
   // (that was the "runoff overlaps pit lane" bug). Paddock depth is known here
   // (same formula as where the paddock mesh is built), so we can reserve it.
-  let pitPaddockDepth = 0;
-  if (project.pit.enabled && (project.pit.paddock ?? true)) {
-    const z = pitZone(project, totalLength);
-    const span = Math.max(1, z.boxB - 4 - (z.boxA + 4));
-    const perRow = Math.max(1, Math.floor(span / 8));
-    const rows = Math.ceil(project.grid.pits / perRow);
-    pitPaddockDepth = 8 + rows * 7;
-  }
+  // The paddock is a fixed service yard now. Its depth used to be derived from
+  // the pit-box count, because the boxes were parked ON it in rows; they sit on
+  // the lane in front of the garages instead, so its size is just how much yard
+  // a circuit wants behind the building.
+  const pitPaddockDepth = project.pit.enabled && (project.pit.paddock ?? true) ? 25 : 0;
   // Outer edge of the whole pit complex at a sample on the pit side (0 elsewhere).
   const pitComplexOuter = (i: number, side: 'left' | 'right'): number => {
     if (!project.pit.enabled || side !== project.pit.side) return 0;
@@ -99,7 +96,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     // in the full-width box zone reserve lane + paddock; in the tapers just the
     // (tapered) lane, so the runoff hugs the lane where there's no paddock.
     const laneW = pitInfo[i][side];
-    if (rd >= z.boxA && rd <= z.boxB) return project.pit.width + pitPaddockDepth + 2;
+    if (rd >= z.boxA && rd <= z.boxB) return project.pit.width + GARAGE_DEPTH + pitPaddockDepth + 2;
     return laneW;
   };
 
@@ -170,7 +167,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
       const zz = pitZone(project, totalLength);
       const rd = pitRel(d, zz, totalLength);
       if (rd >= zz.start && rd <= zz.end) {
-        const complex = project.pit.width + (((project.pit.paddock ?? true)) ? pitPaddockDepth : 2) + 3;
+        const complex = project.pit.width + GARAGE_DEPTH + (((project.pit.paddock ?? true)) ? pitPaddockDepth : 2) + 3;
         return {
           ...base,
           width: Math.max(base.width, complex + 4),
@@ -225,15 +222,10 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   mergeInto(road, esc.road);
   mergeInto(kerb.hi, esc.kerbHi);
 
-  // Paddock beside the pit lane, deep enough for however many box rows
-  // (depth already computed above as pitPaddockDepth so the runoff can reserve it).
   const paddockDepth = pitPaddockDepth;
-  if (project.pit.enabled && (project.pit.paddock ?? true)) {
-    mergeInto(pit, buildPaddock(samples, project, width, paddockDepth));
-  }
   // Pit structures: wall between track and pit lane, garage building along the
   // paddock, painted pit-box lines on the lane.
-  const pitDeco = buildPitStructures(samples, project, width, totalLength, paddockDepth);
+  const pitDeco = buildPitStructures(samples, project, width, totalLength);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors,
     project.surfaceDetail ?? { grassHeight: 0.06, gravelDepth: 0.07 }, project.decor?.adverts ?? false);
@@ -295,6 +287,17 @@ export function buildTrack(project: TrackProject): BuiltTrack {
       noPie,
     });
   }
+  // Service yard behind the garages. It is a SEPARATE surface from the lane —
+  // merging it into the pit mesh (which it was) made the whole yard read as pit
+  // lane to AC, because surfaces.ini marks 1PIT with IS_PITLANE=1.
+  if (project.pit.enabled && (project.pit.paddock ?? true)) {
+    const yard = buildPaddock(samples, project, width, paddockDepth);
+    if (yard.faces.length) {
+      const host = runoffMeshes.find((m) => m.name === yard.name);
+      if (host) mergeInto(host, yard); else runoffMeshes.push(yard);
+    }
+  }
+
   for (const fm of buildCornerFill(samples, width, fills)) {
     const target = runoffMeshes.find((m) => m.name === fm.name);
     if (target) mergeInto(target, fm);
