@@ -663,9 +663,10 @@ SCENERY & SURFACE
             PROP Grandstand 900 right 55
             PROP Start/Finish_Banner 0 left 0
       Names (underscores or spaces):
-      Ambulance, Big_Tent, Billboard, Camper_1, Camper_2, Camper_3
-      Camper_4, Car_BMW, Car_Citroen, Car_Fiesta, Car_Focus
-      Cherry_Picker, Foam_Arrow, Grandstand, Marshall_Post
+      AC_BAPTOU_Billboard, AC_BAPTOU_Board, AC_BAPTOU_Gantry
+      AC_BAPTOU_Hoarding, Ambulance, Big_Tent, Billboard, Camper_1
+      Camper_2, Camper_3, Camper_4, Car_BMW, Car_Citroen, Car_Fiesta
+      Car_Focus, Cherry_Picker, Foam_Arrow, Grandstand, Marshall_Post
       Overhead_Banner, Overside_Banner, Pedestrian_Bridge_Banner
       Pit_Crew, Porta_Potty, Sausage_Kerb, Small_Tent
       Start/Finish_Banner, TV_Van, Truck_Flatbed, Truck_Gray, Truck_Red
