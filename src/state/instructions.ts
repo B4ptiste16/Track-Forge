@@ -667,19 +667,22 @@ SCENERY & SURFACE
       Place a model from the prop library beside the track. Positioned ALONG the
       lap, so it stays put if the layout moves. Offset is from the centreline, so
       it must clear the road: past the run-off for a grandstand, just outside the
-      barrier for a marshal post. rot 0 faces the track.
+      barrier for a marshal post. A prop's LONG axis runs along the track and it
+      faces inward, which is how trackside furniture sits — a hoarding runs down
+      the barrier, a grandstand down the straight. Use rot 90 for anything that
+      should span ACROSS the track, like a gantry.
       e.g.  PROP Marshall_Post 380 left 14
             PROP Grandstand 900 right 55
             PROP Start/Finish_Banner 0 left 0
       Names (underscores or spaces):
       AC_BAPTOU_Billboard, AC_BAPTOU_Board, AC_BAPTOU_Gantry
-      AC_BAPTOU_Hoarding, Ambulance, Big_Tent, Billboard, Camper_1
-      Camper_2, Camper_3, Camper_4, Car_BMW, Car_Citroen, Car_Fiesta
-      Car_Focus, Cherry_Picker, Foam_Arrow, Grandstand, Marshall_Post
-      Overhead_Banner, Overside_Banner, Pedestrian_Bridge_Banner
-      Pit_Crew, Porta_Potty, Sausage_Kerb, Small_Tent
-      Start/Finish_Banner, TV_Van, Truck_Flatbed, Truck_Gray, Truck_Red
-      Truck_White
+      AC_BAPTOU_Hoarding, AC_BAPTOU_Wall_Panel, Ambulance, Big_Tent
+      Billboard, Camper_1, Camper_2, Camper_3, Camper_4, Car_BMW
+      Car_Citroen, Car_Fiesta, Car_Focus, Cherry_Picker, Foam_Arrow
+      Grandstand, Marshall_Post, Overhead_Banner, Overside_Banner
+      Pedestrian_Bridge_Banner, Pit_Crew, Porta_Potty, Sausage_Kerb
+      Small_Tent, Start/Finish_Banner, TV_Van, Truck_Flatbed, Truck_Gray
+      Truck_Red, Truck_White
 
 EXAMPLE
   NAME Riverside Park

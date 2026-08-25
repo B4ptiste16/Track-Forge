@@ -54,9 +54,15 @@ export function buildProps(props: TrackProp[], samples: CenterlineSample[]): Mes
     const ox = s.pos[0] + lx * p.offset * sign;
     const oy = s.pos[1] + ly * p.offset * sign;
 
-    // Face the track: the prop's own +Y runs along the track, and it is turned
-    // to look inward from whichever side it stands on.
-    const yaw = s.heading + (sign > 0 ? -Math.PI / 2 : Math.PI / 2) + ((p.rot ?? 0) * Math.PI) / 180;
+    // ALIGN WITH the track and face it. The prop's long axis (local X) runs along
+    // the direction of travel and its front (local -Y) looks inward, which is how
+    // trackside furniture actually sits: a hoarding runs down the barrier, a
+    // grandstand runs down the straight. The first version yawed by another 90
+    // degrees, which turned every prop broadside — a 4 m board became a fin
+    // sticking out of the wall, and the 102 m grandstand would have speared
+    // straight across the circuit. Anything that genuinely spans the track, like
+    // a gantry, asks for it with rot 90.
+    const yaw = s.heading + (p.side === 'right' ? Math.PI : 0) + ((p.rot ?? 0) * Math.PI) / 180;
     const c = Math.cos(yaw), sn = Math.sin(yaw);
     const k = p.scale && p.scale > 0 ? p.scale : 1;
 
@@ -90,30 +96,45 @@ export function buildProps(props: TrackProp[], samples: CenterlineSample[]): Mes
   return [...byMesh.values()].filter((m) => m.faces.length > 0);
 }
 
-// Hoardings placed automatically along both barriers and down the pit lane.
-// Spaced so they read as a run of boards rather than a fence, and set just
-// INSIDE whatever the barrier distance is here — a board outside the wall is
-// invisible from the car, and one on the run-off is an obstacle.
-const ADVERT_SPACING = 55; // m between boards
-const ADVERT_INSET = 1.2;  // m inside the barrier line
+// Hoardings placed automatically. Two kinds, because that is how a real circuit
+// carries advertising:
+//   - panels ON the barrier face, wherever there IS a barrier. A board planted
+//     in a field beside an open run-off looks like fly-posting; real hoardings
+//     are bolted to the wall.
+//   - a gantry spanning the track every so often, which is the other place a
+//     circuit puts a sponsor.
+const ADVERT_SPACING = 26;   // m between wall panels (they run nose to tail)
+const GANTRY_SPACING = 520;  // m between overhead gantries
 
 export function autoAdverts(samples: CenterlineSample[], resolved: ResolvedSample[], width: number): TrackProp[] {
   if (samples.length < 4) return [];
   const out: TrackProp[] = [];
   let n = 0;
+
   for (const side of ['left', 'right'] as const) {
-    let next = side === 'left' ? ADVERT_SPACING / 2 : ADVERT_SPACING; // stagger the sides
+    let next = side === 'left' ? ADVERT_SPACING / 2 : ADVERT_SPACING;
     for (let i = 0; i < samples.length; i++) {
       const s = samples[i];
       if (s.dist < next) continue;
-      next = s.dist + ADVERT_SPACING;
       const r = resolved[i]?.[side];
-      if (!r) continue;
-      const barrier = Math.max(r.width, r.wallDist ?? r.width);
-      const off = width / 2 + barrier - ADVERT_INSET;
-      if (off <= width / 2 + 1) continue; // no room between track and barrier
-      out.push({ id: `adv${side}${n++}`, kind: 'AC BAPTOU Board', dist: s.dist, side, offset: off });
+      // No barrier here means nothing to mount to. Skipping is deliberate: the
+      // alternative is a sign standing on its own in the grass.
+      if (!r || !r.wall) { next = s.dist + 4; continue; }
+      next = s.dist + ADVERT_SPACING;
+      // Sit against the inner face of the barrier, a little proud of it so the
+      // two do not z-fight.
+      const off = width / 2 + (r.wallDist ?? r.width) - 0.35;
+      if (off <= width / 2 + 0.5) continue;
+      out.push({ id: `adv${side}${n++}`, kind: 'AC BAPTOU Wall Panel', dist: s.dist, side, offset: off });
     }
+  }
+
+  // Overhead gantries. Placed from the RIGHT so the prop's long axis ends up
+  // across the track rather than along it (the yaw is heading + 90 on that
+  // side), centred on the road.
+  const total = samples[samples.length - 1].dist;
+  for (let d = GANTRY_SPACING; d < total - 40; d += GANTRY_SPACING) {
+    out.push({ id: `advg${n++}`, kind: 'AC BAPTOU Gantry', dist: d, side: 'right', offset: 0, rot: 90 });
   }
   return out;
 }
