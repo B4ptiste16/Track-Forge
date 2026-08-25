@@ -210,6 +210,21 @@ function buildLightMasts(
   return out;
 }
 
+
+// How far a tree must stay from the edge of ANY part of the track.
+const TREE_CLEARANCE = 4;
+
+// Nearest centreline sample to a world point: its distance and its height.
+function nearestSample(samples: CenterlineSample[], x: number, y: number): { dist: number; z: number } {
+  let best = Infinity, z = 0;
+  for (const s of samples) {
+    const dx = s.pos[0] - x, dy = s.pos[1] - y;
+    const d = dx * dx + dy * dy;
+    if (d < best) { best = d; z = s.pos[2]; }
+  }
+  return { dist: Math.sqrt(best), z };
+}
+
 // Treeline outside the barriers, both sides, density 0..1 from the preset.
 // Placed beyond the run-off/wall so trees never intrude on the racing surface
 // or the escape roads; spacing and size jitter keep it from looking planted.
@@ -237,7 +252,15 @@ function buildTrees(
       const edge = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
       const x = edge[0] + lx * clear * sign;
       const y = edge[1] + ly * clear * sign;
-      paintTree(m, x, y, s.pos[2], 6 + rng() * 9, rng);
+      // "Beyond the barrier" is only measured against THIS piece of track. Where
+      // the circuit loops back on itself — parallel straights, a hairpin throat —
+      // 6 to 28 m outside one side lands on the other, and trees grew out of the
+      // racing surface. Check the whole centreline, and take the ground height
+      // from wherever the tree actually stands rather than from the sample it
+      // was measured off, which can be tens of metres away and at another level.
+      const near = nearestSample(samples, x, y);
+      if (near.dist < width / 2 + TREE_CLEARANCE) continue;
+      paintTree(m, x, y, near.z, 6 + rng() * 9, rng);
     }
   }
 }

@@ -477,6 +477,14 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         }];
         ok(`camera at ${d} m on the ${side}`); break;
       }
+      case 'ADVERTS': {
+        const on = a[0] === 'on' || a[0] === 'true' || a[0] === '1';
+        const off = a[0] === 'off' || a[0] === 'false' || a[0] === '0';
+        if (!on && !off) { err('ADVERTS needs on|off'); break; }
+        p.decor = { ...(p.decor ?? { trees: 0, grandstands: false }), adverts: on };
+        ok(`adverts ${on ? 'on' : 'off'}`); break;
+      }
+
       case 'PROP': {
         const kind = PROP_NAMES.find((n: string) => n.toLowerCase() === String(a[0] ?? '').toLowerCase().replace(/_/g, ' '));
         const dist = num(a[1]);
@@ -654,6 +662,7 @@ SCENERY & SURFACE
   GRASSLIP <m>                    how far grass sits above the tarmac
   GRAVELDEPTH <m>                 how far a gravel trap sits below it
   BUILDING offices|glass|brick|hangar <x> <y> <w> <d> <h> [rot_deg]
+  ADVERTS on|off                  AC BAPTOU hoardings along both barriers
   PROP <name> <dist_m> <left|right> <offset_m> [rot_deg]
       Place a model from the prop library beside the track. Positioned ALONG the
       lap, so it stays put if the layout moves. Offset is from the centreline, so

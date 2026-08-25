@@ -33,6 +33,12 @@ export interface KerbSample {
   right: KerbType;
   leftW: number; // per-corner width override (m); 0 = profile default
   rightW: number;
+  // The width the kerb ACTUALLY occupies here, taper included. The kerb narrows
+  // to a point over its last few metres; anything laid alongside it has to
+  // follow that, or it reserves full width against a kerb that isn't there yet
+  // and leaves a wedge of bare ground between the two — a triangle in a square.
+  leftEff: number;
+  rightEff: number;
 }
 
 // For every centerline sample, decide which kerb profile (if any) sits where.
@@ -42,7 +48,7 @@ export function computeKerbInfo(
   corners: CornerConfig[],
   defaultKerb: KerbType,
 ): KerbSample[] {
-  const info: KerbSample[] = samples.map(() => ({ left: 'none', right: 'none', leftW: 0, rightW: 0 }));
+  const info: KerbSample[] = samples.map(() => ({ left: 'none', right: 'none', leftW: 0, rightW: 0, leftEff: 0, rightEff: 0 }));
 
   for (const span of spans) {
     if (span.kind !== 'corner') continue;
@@ -91,6 +97,36 @@ export function computeKerbInfo(
       if (d >= a - entryLen && d < a) mark(i, outside, entry, wEntry);
       if (d >= apexFrom && d <= apexTo) mark(i, inside, apex, wApex);
       if (d > b && d <= b + exitLen) mark(i, outside, exit, wExit);
+    }
+  }
+
+  // Effective (tapered) width per sample. The runs here are grouped exactly as
+  // buildKerbs groups them — same profile AND same width override — so the taper
+  // lines up with the geometry rather than approximating it.
+  for (const side of ['left', 'right'] as const) {
+    let i = 0;
+    while (i < samples.length) {
+      const profile = info[i][side];
+      if (profile === 'none') { i++; continue; }
+      const w = side === 'left' ? info[i].leftW : info[i].rightW;
+      let j = i + 1;
+      while (
+        j < samples.length &&
+        info[j][side] === profile &&
+        (side === 'left' ? info[j].leftW : info[j].rightW) === w
+      ) j++;
+      const shape = kerbShape(profile);
+      if (shape && j - i >= 2) {
+        const d0 = samples[i].dist, d1 = samples[j - 1].dist;
+        const full = w > 0 ? w : shape.width;
+        for (let k = i; k < j; k++) {
+          const d = samples[k].dist;
+          const taper = Math.max(0, Math.min(1, (d - d0) / END_TAPER, (d1 - d) / END_TAPER));
+          if (side === 'left') info[k].leftEff = full * taper;
+          else info[k].rightEff = full * taper;
+        }
+      }
+      i = j;
     }
   }
 

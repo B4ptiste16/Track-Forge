@@ -82,6 +82,21 @@ export function FacilitiesPanel({ project, built, onChange }: Props) {
         </>
       )}
 
+      <h3>Advertising</h3>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={project.decor?.adverts ?? false}
+          onChange={(e) => onChange({ ...project, decor: { ...(project.decor ?? { trees: 0, grandstands: false }), adverts: e.target.checked } })}
+        />
+        AC BAPTOU hoardings along the barriers
+      </label>
+      <p className="muted">
+        Boards every 55&nbsp;m down both sides, set just inside whatever the barrier
+        distance is. Place individual ones anywhere with the <b>PROP</b> command
+        (AC_BAPTOU_Board / Billboard / Gantry / Hoarding).
+      </p>
+
       <h3>Buildings <button className="small" onClick={addB}>+ building</button></h3>
       <p className="muted">
         Decorative boxes (visual only in AC). Tip: use <b>Place building</b> in the 2D editor

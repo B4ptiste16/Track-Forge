@@ -13,7 +13,7 @@ import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
 import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel } from './pitlane';
 import { buildBuildings } from './buildings';
-import { buildProps } from './props';
+import { autoAdverts, buildProps } from './props';
 import { buildPatches } from './patches';
 import { buildGrassTufts } from './grassTufts';
 import {
@@ -112,8 +112,8 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // tarmac it came up through low kerbs — the kerb looked set back from the
   // track with grass in between. A kerb belongs against the racing surface.
   const innerOffsets: SideOffset[] = samples.map((_, i) => ({
-    left: Math.max(pitInfo[i].left, pitComplexOuter(i, 'left'), kerbInfo[i].leftW),
-    right: Math.max(pitInfo[i].right, pitComplexOuter(i, 'right'), kerbInfo[i].rightW),
+    left: Math.max(pitInfo[i].left, pitComplexOuter(i, 'left'), kerbInfo[i].leftEff),
+    right: Math.max(pitInfo[i].right, pitComplexOuter(i, 'right'), kerbInfo[i].rightEff),
   }));
 
   // Per-sample, per-side mask: suppress the inside barrier around each corner —
@@ -334,7 +334,8 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const empties = buildEmpties(samples, project);
   const decor = buildDecor(project, samples, spans, width, resolved);
   const bldgs = buildBuildings(project.buildings ?? [], samples);
-  const propMeshes = buildProps(project.props ?? [], samples);
+  const adverts = project.decor?.adverts ? autoAdverts(samples, resolved, width) : [];
+  const propMeshes = buildProps([...(project.props ?? []), ...adverts], samples);
   // Hand-placed surface patches, merged with the aprons so they share materials.
   const patchMeshes = buildPatches(project.patches ?? [], samples);
   // Grass that stands up out of the verge (alpha-cut cards) — the thing a flat

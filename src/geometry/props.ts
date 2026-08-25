@@ -1,5 +1,6 @@
 import type { TrackProp } from '../types';
 import type { CenterlineSample, MeshData, Vec3 } from './types';
+import type { ResolvedSample } from './runoff';
 import { perpLeft } from './frames';
 import propData from '../data/props.json';
 
@@ -87,4 +88,32 @@ export function buildProps(props: TrackProp[], samples: CenterlineSample[]): Mes
     }
   }
   return [...byMesh.values()].filter((m) => m.faces.length > 0);
+}
+
+// Hoardings placed automatically along both barriers and down the pit lane.
+// Spaced so they read as a run of boards rather than a fence, and set just
+// INSIDE whatever the barrier distance is here — a board outside the wall is
+// invisible from the car, and one on the run-off is an obstacle.
+const ADVERT_SPACING = 55; // m between boards
+const ADVERT_INSET = 1.2;  // m inside the barrier line
+
+export function autoAdverts(samples: CenterlineSample[], resolved: ResolvedSample[], width: number): TrackProp[] {
+  if (samples.length < 4) return [];
+  const out: TrackProp[] = [];
+  let n = 0;
+  for (const side of ['left', 'right'] as const) {
+    let next = side === 'left' ? ADVERT_SPACING / 2 : ADVERT_SPACING; // stagger the sides
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      if (s.dist < next) continue;
+      next = s.dist + ADVERT_SPACING;
+      const r = resolved[i]?.[side];
+      if (!r) continue;
+      const barrier = Math.max(r.width, r.wallDist ?? r.width);
+      const off = width / 2 + barrier - ADVERT_INSET;
+      if (off <= width / 2 + 1) continue; // no room between track and barrier
+      out.push({ id: `adv${side}${n++}`, kind: 'AC BAPTOU Board', dist: s.dist, side, offset: off });
+    }
+  }
+  return out;
 }
