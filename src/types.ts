@@ -118,6 +118,20 @@ export interface SurfacePatch {
   rot: number; // degrees, CCW
 }
 
+// A placed trackside prop from the model pack (marshal post, grandstand,
+// banner, service vehicle...). Positioned ALONG the lap rather than in world XY,
+// because that is how you actually think about them — "a marshal post 40 m after
+// turn 3, 12 m off the left of the track" — and it survives the layout moving.
+export interface TrackProp {
+  id: string;
+  kind: string;            // key into the prop library
+  dist: number;            // m along the lap
+  side: 'left' | 'right';
+  offset: number;          // m from the centreline
+  rot?: number;            // extra yaw in degrees (0 = facing the track)
+  scale?: number;          // 1 = as modelled
+}
+
 // A trackside TV camera. AC cuts between these in replays and on F3; a track
 // without any gets one flat default view for the whole lap.
 export interface TrackCamera {
@@ -243,6 +257,7 @@ export interface TrackProject {
   buildings: Building[]; // placeable decorative buildings
   patches?: SurfacePatch[]; // hand-placed surface patches (run-off, aprons)
   cameras?: TrackCamera[]; // trackside TV cameras (auto-placed when empty)
+  props?: TrackProp[]; // placed trackside props from the model pack
   layouts?: SavedLayout[]; // saved alternate layouts of this track
   runoffDefault?: SectionSide; // LEGACY (pre-trackside projects; migrated on load)
   runoff?: SectionRunoff[]; // LEGACY

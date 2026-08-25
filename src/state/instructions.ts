@@ -12,9 +12,10 @@
 // so one typo in a 200-line sheet doesn't cost you the whole circuit.
 import type {
   Building, BuildingKind, Direction, EscapeType, KerbType, Segment, StripCfg,
-  PatchSurface, StripTexture, Theme, TrackProject, WallStyle,
+  PatchSurface, StripTexture, Theme, TrackProject, TrackProp, WallStyle,
 } from '../types';
 import { newSegId, newZoneId, syncCorners } from './project';
+import { PROP_NAMES } from '../geometry/props';
 import { buildCenterline } from '../geometry';
 import { CIRCUIT_PRESETS, applyPreset } from './presets';
 
@@ -476,6 +477,20 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         }];
         ok(`camera at ${d} m on the ${side}`); break;
       }
+      case 'PROP': {
+        const kind = PROP_NAMES.find((n: string) => n.toLowerCase() === String(a[0] ?? '').toLowerCase().replace(/_/g, ' '));
+        const dist = num(a[1]);
+        const side = a[2] === 'left' || a[2] === 'right' ? a[2] : null;
+        const off = num(a[3]);
+        const rot = num(a[4]) ?? 0;
+        if (!kind || dist === null || !side || off === null) {
+          err(`PROP needs <name> <dist_m> <left|right> <offset_m> [rot_deg]; names: ${PROP_NAMES.slice(0, 6).join(', ')}…`); break;
+        }
+        const pr: TrackProp = { id: `pr${Date.now()}${(p.props ?? []).length}`, kind, dist, side, offset: off, rot };
+        p.props = [...(p.props ?? []), pr];
+        ok(`prop ${kind} at ${dist} m, ${side} ${off} m`); break;
+      }
+
       case 'BUILDING': {
         const kind = oneOf(a[0], BUILDINGS);
         const x = num(a[1]), y = num(a[2]), w = num(a[3]), d = num(a[4]), h = num(a[5]);
@@ -639,6 +654,22 @@ SCENERY & SURFACE
   GRASSLIP <m>                    how far grass sits above the tarmac
   GRAVELDEPTH <m>                 how far a gravel trap sits below it
   BUILDING offices|glass|brick|hangar <x> <y> <w> <d> <h> [rot_deg]
+  PROP <name> <dist_m> <left|right> <offset_m> [rot_deg]
+      Place a model from the prop library beside the track. Positioned ALONG the
+      lap, so it stays put if the layout moves. Offset is from the centreline, so
+      it must clear the road: past the run-off for a grandstand, just outside the
+      barrier for a marshal post. rot 0 faces the track.
+      e.g.  PROP Marshall_Post 380 left 14
+            PROP Grandstand 900 right 55
+            PROP Start/Finish_Banner 0 left 0
+      Names (underscores or spaces):
+      Ambulance, Big_Tent, Billboard, Camper_1, Camper_2, Camper_3
+      Camper_4, Car_BMW, Car_Citroen, Car_Fiesta, Car_Focus
+      Cherry_Picker, Foam_Arrow, Grandstand, Marshall_Post
+      Overhead_Banner, Overside_Banner, Pedestrian_Bridge_Banner
+      Pit_Crew, Porta_Potty, Sausage_Kerb, Small_Tent
+      Start/Finish_Banner, TV_Van, Truck_Flatbed, Truck_Gray, Truck_Red
+      Truck_White
 
 EXAMPLE
   NAME Riverside Park

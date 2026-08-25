@@ -239,10 +239,39 @@ function texturePackOverride(relPath) {
   return null;
 }
 
+
+// The prop model pack ships its own textures. Copy in only the ones the exported
+// track actually uses — scanning the FBX for the DECOR_P_* mesh names it wrote —
+// so a circuit with two marshal posts doesn't drag in 10 MB of grandstand and
+// tractor sheets it never references.
+function copyPropTextures(root, fbxText) {
+  const dir = app.isPackaged
+    ? path.join(process.resourcesPath, 'prop_textures')
+    : path.join(__dirname, '..', 'build', 'prop_textures');
+  const mapFile = path.join(dir, '_map.json');
+  if (!fs.existsSync(mapFile)) return [];
+  let map;
+  try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { return []; }
+  const copied = [];
+  for (const [mesh, tex] of Object.entries(map)) {
+    if (!fbxText.includes(mesh)) continue;
+    const src = path.join(dir, tex);
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(root, 'texture', tex);
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+      if (!copied.includes(tex)) copied.push(tex);
+    } catch { /* a missing prop texture must not fail the whole export */ }
+  }
+  return copied;
+}
+
 // Write the track files under baseDir/<slug>. Returns ok + the folder + fbx path.
 ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   const root = path.join(baseDir, slug);
   let fbxPath = null;
+  let fbxText = '';
   const swapped = [];
   try {
     for (const f of files) {
@@ -252,9 +281,10 @@ ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
       const data = packed ?? (f.encoding === 'base64' ? Buffer.from(f.data, 'base64') : f.data);
       if (packed) swapped.push(path.basename(f.path));
       fs.writeFileSync(dest, data);
-      if (f.path.toLowerCase().endsWith('.fbx')) fbxPath = dest;
+      if (f.path.toLowerCase().endsWith('.fbx')) { fbxPath = dest; fbxText = typeof data === 'string' ? data : String(data); }
     }
-    return { ok: true, root, fbxPath, texturesFromPack: swapped };
+    const propTex = fbxText ? copyPropTextures(root, fbxText) : [];
+    return { ok: true, root, fbxPath, texturesFromPack: swapped, propTextures: propTex };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err), root };
   }

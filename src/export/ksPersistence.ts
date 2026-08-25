@@ -1,6 +1,7 @@
 import type { BuiltTrack } from '../geometry';
 import type { TexFile } from './textures';
 import { baseSurfaceName } from './fbx';
+import propTextures from '../data/propTextures.json';
 
 // ---------------------------------------------------------------------------
 // KsEditor persistence file (`<name>.fbx.ini`) — the Race Track Builder trick.
@@ -66,7 +67,17 @@ function usDate(d: Date): string {
 // Surfaces whose texture has cut-out alpha (grass cards). They need an
 // alpha-TESTED shader: without it AC draws the card's transparent area as solid
 // colour and the verge becomes a field of green rectangles.
-const ALPHA_TESTED = new Set(['mat_DECOR_GRASSTUFT']);
+const ALPHA_TESTED = new Set([
+  'mat_DECOR_GRASSTUFT',
+  // Prop sheets that are cut-outs rather than solid skins: fencing and
+  // scaffolding on the grandstand, the banner fabric, and the tent panels. Left
+  // opaque they render as black rectangles around the cut-out shape.
+  'mat_DECOR_P_STRUCTURESALPHA',
+  'mat_DECOR_P_BARRIERZP',
+  'mat_DECOR_P_GAZEBOTENT',
+  'mat_DECOR_P_BRIDGES',
+  'mat_DECOR_P_METALS',
+]);
 
 // Surfaces that GLOW. Vanilla AC has no dynamic track lights — that needs CSP —
 // so a floodlight mast on a machine without it is a pole that emits nothing.
@@ -124,9 +135,14 @@ export function genKsPersistence(
     `MD5_HASH=${hash}`,
   ].join('\r\n');
 
+  // Props come from the model pack and carry their own texture files, so their
+  // materials point at those rather than at a generated surface texture.
+  const propTex = propTextures as Record<string, string>;
   const mats = built.meshes.map((m) => ({
     name: `mat_${m.name}`,
-    texture: textures.find((t) => t.surface === baseSurfaceName(m.name))?.name ?? 'road.png',
+    texture: propTex[m.name]
+      ?? textures.find((t) => t.surface === baseSurfaceName(m.name))?.name
+      ?? 'road.png',
   }));
   const matList = [`[MATERIAL_LIST]`, `COUNT=${mats.length}`].join('\r\n');
   const matBlocks = mats.map((m, i) => materialBlock(i, m.name, m.texture));
