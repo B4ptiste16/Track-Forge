@@ -568,6 +568,7 @@ export function buildRunoff(
   wallGaps: WallGap[] = [],
   wallFree: WallFreeCorridor[] = [],
   detail: SurfaceDetail = { grassHeight: 0, gravelDepth: 0 },
+  adverts = false,
 ): MeshData[] {
   const surfaces = new Map<string, MeshData>();
   const getSurface = (name: string): MeshData => {
@@ -690,6 +691,9 @@ export function buildRunoff(
                 : walls.style === 'armco' ? 0.45 // rail + the posts behind it
                   : 0.65; // solid concrete
         emitWallBox(wall, oA, oB, inward, walls.height, thick, uA, uB);
+        if (adverts) {
+          emitAdvertDecal(surfaces, oA, oB, inward, walls.height, thick, samples[i].dist, samples[i + 1].dist);
+        }
       }
     }
   }
@@ -744,6 +748,55 @@ export function buildManualWalls(
 // Chunky barrier (tyre/poly blocks, TecPro): a contiguous box (thickness +
 // top) per segment, so it reads as a row of blocks. Still gapless for collision.
 const BLOCK_THICK = 0.85;
+
+// ---------------------------------------------------------------------------
+// Wall advertising. A hoarding is not an object standing near a barrier — it is
+// the barrier's face. So the wall keeps its own box (and therefore its physics
+// and its plain texture) and each advert is a thin DECAL copied off the
+// track-facing face, pushed a couple of centimetres toward the track so it wins
+// the depth test.
+//
+// One mesh, and therefore one material and one texture, PER DESIGN: that is what
+// lets the wall alternate designs along its length and lets more be added later
+// by extending this list.
+// ---------------------------------------------------------------------------
+export const ADVERT_MESHES = ['DECOR_ADVERT1', 'DECOR_ADVERT2', 'DECOR_ADVERT3', 'DECOR_ADVERT4'];
+const ADV_PERIOD = 13;   // m from the start of one hoarding to the next
+const ADV_LEN = 9;       // m of that taken up by the hoarding itself
+const ADV_MARGIN = 0.12; // m of bare wall left above and below
+const ADV_PROUD = 0.03;  // m the decal stands off the wall face
+
+// Emit the advert decal for one wall segment, if this stretch carries one.
+function emitAdvertDecal(
+  meshes: Map<string, MeshData>, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number,
+  distA: number, distB: number,
+): void {
+  const spanA = Math.floor(distA / ADV_PERIOD);
+  if (spanA !== Math.floor(distB / ADV_PERIOD)) return; // straddles two hoardings
+  const startD = spanA * ADV_PERIOD;
+  const uA = (distA - startD) / ADV_LEN;
+  const uB = (distB - startD) / ADV_LEN;
+  if (uA < 0 || uB > 1) return;                          // in the gap between boards
+  const name = ADVERT_MESHES[Math.abs(spanA) % ADVERT_MESHES.length];
+  let m = meshes.get(name);
+  if (!m) { m = { name, vertices: [], faces: [], uvs: [] }; meshes.set(name, m); }
+  // The wall box runs from oA TOWARD the track by `thick`, so its track-facing
+  // surface is at oA + inward*thick — not at oA. Offsetting the other way put the
+  // hoardings on the back of the barrier, where the only thing that could read
+  // them was the scenery. Measured: the decal sat exactly 0.030 m the wrong side.
+  const d = thick + ADV_PROUD;
+  const o: Vec3 = [inward[0] * d, inward[1] * d, 0];
+  const z0 = ADV_MARGIN, z1 = h - ADV_MARGIN;
+  if (z1 <= z0) return;
+  const b = m.vertices.length;
+  m.vertices.push([oA[0] + o[0], oA[1] + o[1], oA[2] + z0]);
+  m.vertices.push([oA[0] + o[0], oA[1] + o[1], oA[2] + z1]);
+  m.vertices.push([oB[0] + o[0], oB[1] + o[1], oB[2] + z1]);
+  m.vertices.push([oB[0] + o[0], oB[1] + o[1], oB[2] + z0]);
+  m.uvs!.push([uA, 0], [uA, 1], [uB, 1], [uB, 0]);
+  addQuadToward(m.vertices, m.faces, b + 0, b + 1, b + 2, b + 3, inward);
+}
+
 function emitWallBox(wall: MeshData, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number, uA: number, uB: number): void {
   const base = wall.vertices.length;
   const t: Vec3 = [inward[0] * thick, inward[1] * thick, 0];

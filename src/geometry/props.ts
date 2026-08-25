@@ -96,43 +96,18 @@ export function buildProps(props: TrackProp[], samples: CenterlineSample[]): Mes
   return [...byMesh.values()].filter((m) => m.faces.length > 0);
 }
 
-// Hoardings placed automatically. Two kinds, because that is how a real circuit
-// carries advertising:
-//   - panels ON the barrier face, wherever there IS a barrier. A board planted
-//     in a field beside an open run-off looks like fly-posting; real hoardings
-//     are bolted to the wall.
-//   - a gantry spanning the track every so often, which is the other place a
-//     circuit puts a sponsor.
-const ADVERT_SPACING = 26;   // m between wall panels (they run nose to tail)
-const GANTRY_SPACING = 520;  // m between overhead gantries
+// Overhead gantries. The hoardings themselves are not props any more — they are
+// decals on the wall's own face (see ADVERT_MESHES in runoff.ts), which is what a
+// trackside advert actually is. What is left here is the other place a circuit
+// carries a sponsor: a beam over the road.
+const GANTRY_SPACING = 520; // m between overhead gantries
 
-export function autoAdverts(samples: CenterlineSample[], resolved: ResolvedSample[], width: number): TrackProp[] {
+export function autoAdverts(samples: CenterlineSample[], _resolved: ResolvedSample[], _width: number): TrackProp[] {
   if (samples.length < 4) return [];
   const out: TrackProp[] = [];
-  let n = 0;
-
-  for (const side of ['left', 'right'] as const) {
-    let next = side === 'left' ? ADVERT_SPACING / 2 : ADVERT_SPACING;
-    for (let i = 0; i < samples.length; i++) {
-      const s = samples[i];
-      if (s.dist < next) continue;
-      const r = resolved[i]?.[side];
-      // No barrier here means nothing to mount to. Skipping is deliberate: the
-      // alternative is a sign standing on its own in the grass.
-      if (!r || !r.wall) { next = s.dist + 4; continue; }
-      next = s.dist + ADVERT_SPACING;
-      // Sit against the inner face of the barrier, a little proud of it so the
-      // two do not z-fight.
-      const off = width / 2 + (r.wallDist ?? r.width) - 0.35;
-      if (off <= width / 2 + 0.5) continue;
-      out.push({ id: `adv${side}${n++}`, kind: 'AC BAPTOU Wall Panel', dist: s.dist, side, offset: off });
-    }
-  }
-
-  // Overhead gantries. Placed from the RIGHT so the prop's long axis ends up
-  // across the track rather than along it (the yaw is heading + 90 on that
-  // side), centred on the road.
   const total = samples[samples.length - 1].dist;
+  let n = 0;
+  // rot 90 turns it across the road; without it a gantry lies along the track.
   for (let d = GANTRY_SPACING; d < total - 40; d += GANTRY_SPACING) {
     out.push({ id: `advg${n++}`, kind: 'AC BAPTOU Gantry', dist: d, side: 'right', offset: 0, rot: 90 });
   }

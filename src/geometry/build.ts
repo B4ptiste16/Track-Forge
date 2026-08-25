@@ -236,7 +236,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const pitDeco = buildPitStructures(samples, project, width, totalLength, paddockDepth);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors,
-    project.surfaceDetail ?? { grassHeight: 0.06, gravelDepth: 0.07 });
+    project.surfaceDetail ?? { grassHeight: 0.06, gravelDepth: 0.07 }, project.decor?.adverts ?? false);
   // gravel escape surface merges into the 1SAND apron mesh if present, else adds
   if (esc.gravel.faces.length) {
     const sand = runoffMeshes.find((m) => m.name === '1SAND');
