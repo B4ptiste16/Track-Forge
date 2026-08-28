@@ -267,6 +267,26 @@ function copyPropTextures(root, fbxText) {
   return copied;
 }
 
+// The 3D preview draws the GENERATED textures, while an export substitutes any
+// matching file from the user's texture pack. That meant the app could never
+// show what the game would actually render — every texture judgement needed a
+// full export and ksEditor round trip. Hand the pack over so the preview can
+// draw the same images.
+ipcMain.handle('texture:pack', async () => {
+  const dir = loadSettings().texturePackDir;
+  if (!dir || !fs.existsSync(dir)) return { ok: true, textures: {} };
+  const out = {};
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.png$/i.test(f)) continue;               // .png only, as on export
+      const buf = fs.readFileSync(path.join(dir, f));
+      if (buf.length > 12 * 1024 * 1024) continue;     // don't blow up the renderer
+      out[f.toLowerCase()] = `data:image/png;base64,${buf.toString('base64')}`;
+    }
+  } catch { /* an unreadable pack just means the generated textures stand */ }
+  return { ok: true, textures: out };
+});
+
 // Write the track files under baseDir/<slug>. Returns ok + the folder + fbx path.
 ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   const root = path.join(baseDir, slug);

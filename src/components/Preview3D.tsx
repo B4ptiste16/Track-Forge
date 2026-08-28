@@ -4,7 +4,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { TrackProject } from '../types';
 import type { BuiltTrack, MeshData } from '../geometry';
 import { THEME_PALETTES, WALL_STYLE_COLORS, meshColor } from '../state/project';
-import { genTextureUrls } from '../export/textures';
+import { desktop } from '../desktop';
+import { genTextureUrls, textureFileName } from '../export/textures';
 
 // VERTICAL EXAGGERATION (preview only — the exported track is never changed).
 // A real circuit is far wider than it is tall: Monza climbs about 8 m across a
@@ -55,6 +56,20 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
   const vScaleRef = useRef(1);
   const texCacheRef = useRef<Map<string, THREE.Texture>>(new Map());
   const texKeyRef = useRef('');
+  // Files from the user's texture pack, so the preview draws what the export
+  // will. Loaded once; packVer bumps the texture cache key when they arrive.
+  const packRef = useRef<Record<string, string>>({});
+  const [packVer, setPackVer] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    desktop?.getTexturePack?.().then((r: { ok: boolean; textures: Record<string, string> }) => {
+      if (cancelled || !r?.ok) return;
+      const n = Object.keys(r.textures ?? {}).length;
+      packRef.current = r.textures ?? {};
+      if (n) setPackVer((v) => v + 1);
+    }).catch(() => { /* no pack, generated textures stand */ });
+    return () => { cancelled = true; };
+  }, []);
   vScaleRef.current = vScale;
   const controlsRef = useRef<OrbitControls>(null);
   const builtRef = useRef(built);
@@ -250,7 +265,7 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
     // exist) — they are the same ones the export writes, so the preview shows
     // the actual material rather than a flat colour. Cached because grass alone
     // is ~17k blades to draw.
-    const texKey = `${project.meta.theme}|${project.walls.style}|${built.meshes.map((m) => m.name).join(',')}`;
+    const texKey = `${project.meta.theme}|${project.walls.style}|${packVer}|${built.meshes.map((m) => m.name).join(',')}`;
     if (texKeyRef.current !== texKey) {
       texKeyRef.current = texKey;
       for (const t of texCacheRef.current.values()) t.dispose();
@@ -258,7 +273,10 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
       const urls = genTextureUrls(built, pal, project.meta.theme, project.walls.style);
       const loader = new THREE.TextureLoader();
       for (const [name, url] of urls) {
-        const t = loader.load(url);
+        // Show what the EXPORT will show: a file from the texture pack wins over
+        // the generated one, matched on the same basename the exporter uses.
+        const packed = packRef.current[`${textureFileName(name)}`.toLowerCase()];
+        const t = loader.load(packed ?? url);
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.colorSpace = THREE.SRGBColorSpace;
         t.anisotropy = 8;

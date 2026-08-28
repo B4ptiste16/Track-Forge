@@ -539,11 +539,13 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       // stretched onto it pulled the wordmark sideways until it ran off the end
       // of the sign. A band of the same proportion maps 1:1 and the advert fits.
       const idx = Number(surface.slice(-1)) - 1;
+      // The app's own violet, sampled from build/icon.png (#5858f8 / #7048f8),
+      // rather than a guess at "purple".
       const schemes: [string, string, string][] = [
-        ['#101218', '#ffd24a', '#ffffff'], // dark with the app's accent
-        ['#ffd24a', '#101218', '#101218'], // inverted
-        ['#12303a', '#33e0ff', '#ffffff'], // cyan on deep teal
-        ['#f4f4f2', '#101218', '#454a57'], // light
+        ['#1a1440', '#8b7cff', '#ffffff'], // deep indigo, light violet wordmark
+        ['#6a4ff8', '#ffffff', '#f4f1ff'], // brand violet, reversed out in white
+        ['#f2f0ff', '#4a3ad0', '#5f56a0'], // pale violet, dark type
+        ['#2a1f5c', '#a78bfa', '#ffffff'], // muted indigo
       ];
       const [bg, fg, sub] = schemes[idx % schemes.length];
       const band = SIZE / ADVERT_ASPECT;      // height of the artwork strip

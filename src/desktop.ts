@@ -11,6 +11,7 @@ export interface DesktopFile {
 export interface DesktopApi {
   isDesktop: boolean;
   getSettings(): Promise<Record<string, string>>;
+  getTexturePack(): Promise<{ ok: boolean; textures: Record<string, string> }>;
   setSettings(s: Record<string, string>): Promise<boolean>;
   pickFolder(): Promise<string | null>;
   pickFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;

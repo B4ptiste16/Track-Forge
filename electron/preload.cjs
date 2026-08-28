@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('desktop', {
   trackDelete: (id) => ipcRenderer.invoke('tracks:delete', { id }),
   tracksReveal: () => ipcRenderer.invoke('tracks:reveal'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  getTexturePack: () => ipcRenderer.invoke('texture:pack'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   pickFile: (filters) => ipcRenderer.invoke('dialog:pickFile', filters),

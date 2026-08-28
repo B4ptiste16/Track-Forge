@@ -692,7 +692,7 @@ export function buildRunoff(
                   : 0.65; // solid concrete
         emitWallBox(wall, oA, oB, inward, walls.height, thick, uA, uB);
         if (adverts) {
-          emitAdvertDecal(surfaces, oA, oB, inward, walls.height, thick, samples[i].dist, samples[i + 1].dist);
+          emitAdvertDecal(surfaces, oA, oB, inward, walls.height, thick, samples[i].dist, samples[i + 1].dist, side);
         }
       }
     }
@@ -784,7 +784,7 @@ function advertLen(wallHeight: number): number {
 // join and each part is mapped into its own board.
 function emitAdvertDecal(
   meshes: Map<string, MeshData>, oA: Vec3, oB: Vec3, inward: Vec3, h: number, thick: number,
-  distA: number, distB: number,
+  distA: number, distB: number, side: 'left' | 'right',
 ): void {
   if (distB <= distA) return;                 // lap seam
   const len = advertLen(h);
@@ -822,7 +822,13 @@ function emitAdvertDecal(
     m.vertices.push([pA[0] + off[0], pA[1] + off[1], pA[2] + z1]);
     m.vertices.push([pB[0] + off[0], pB[1] + off[1], pB[2] + z1]);
     m.vertices.push([pB[0] + off[0], pB[1] + off[1], pB[2] + z0]);
-    m.uvs!.push([uA, vLo], [uA, vHi], [uB, vHi], [uB, vLo]);
+    // The two walls are read from OPPOSITE sides. Laying U along the direction of
+    // travel on both makes the right-hand boards a mirror image of the left, so
+    // the text runs backwards there. Flip U on the right so both read forwards
+    // to a driver.
+    const wA = side === 'right' ? 1 - uA : uA;
+    const wB = side === 'right' ? 1 - uB : uB;
+    m.uvs!.push([wA, vLo], [wA, vHi], [wB, vHi], [wB, vLo]);
     addQuadToward(m.vertices, m.faces, b + 0, b + 1, b + 2, b + 3, inward);
     from = to;
   }

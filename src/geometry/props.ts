@@ -107,9 +107,12 @@ export function autoAdverts(samples: CenterlineSample[], _resolved: ResolvedSamp
   const out: TrackProp[] = [];
   const total = samples[samples.length - 1].dist;
   let n = 0;
+  // A PLAIN overhead banner, not the start/finish structure. The gantry used for
+  // this was built from the start-line gantry, so repeating it round the lap put
+  // a set of starting lights over the track every 520 m.
   // rot 90 turns it across the road; without it a gantry lies along the track.
   for (let d = GANTRY_SPACING; d < total - 40; d += GANTRY_SPACING) {
-    out.push({ id: `advg${n++}`, kind: 'AC BAPTOU Gantry', dist: d, side: 'right', offset: 0, rot: 90 });
+    out.push({ id: `advg${n++}`, kind: 'AC BAPTOU Overhead', dist: d, side: 'right', offset: 0, rot: 90 });
   }
   return out;
 }
