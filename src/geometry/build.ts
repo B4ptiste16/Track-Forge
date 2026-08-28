@@ -228,7 +228,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const pitDeco = buildPitStructures(samples, project, width, totalLength);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors,
-    project.surfaceDetail ?? { grassHeight: 0.06, gravelDepth: 0.07 }, project.decor?.adverts ?? false);
+    project.surfaceDetail ?? { grassHeight: 0, gravelDepth: 0 }, project.decor?.adverts ?? false);
   // gravel escape surface merges into the 1SAND apron mesh if present, else adds
   if (esc.gravel.faces.length) {
     const sand = runoffMeshes.find((m) => m.name === '1SAND');
@@ -362,7 +362,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     // legitimately BORDERS an apron — the 0.5 m verge of 'gravel_spaced' sits
     // entirely within any margin, so the whole band got pushed under the gravel
     // and left a gap you could see through.
-    if (blockers.length) clampUnder(grassAll, blockers, 0.02, 0);
+    if (blockers.length) clampUnder(grassAll, blockers, 0.005, 0);
   }
 
   const aprons = runoffMeshes.filter((m) => m.name !== '1WALL');

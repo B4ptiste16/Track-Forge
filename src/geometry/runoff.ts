@@ -221,9 +221,16 @@ export interface ResolvedSample {
 // grass/dirt verges stand slightly PROUD of the tarmac, gravel traps are dug
 // slightly BELOW it. Paved surfaces stay flush. Kept to a few cm — enough to
 // see and feel, small enough that a car crossing it isn't launched.
-export function surfaceRelief(surfName: string, d: SurfaceDetail): number {
-  if (surfName === '1GRASS' || surfName === '1DIRT') return Math.max(0, Math.min(0.2, d.grassHeight || 0));
-  if (surfName === '1SAND') return -Math.max(0, Math.min(0.25, d.gravelDepth || 0));
+// EVERY surface is laid LEVEL with the track. Grass used to stand `grassHeight`
+// proud of the tarmac and a gravel trap was sunk by `gravelDepth`, on the theory
+// that a real verge has a lip you can feel. In practice that step was the source
+// of most of the visible defects around the track edge: a raised verge showed
+// its own vertical face as a dark band, a sunken trap left a see-through slot
+// where nothing closed the gap, and the two together made kerb ends look like
+// holes. Level is what the track needs to look right, so level is what it gets —
+// the relief is deliberately ignored rather than removed, so old projects that
+// still carry a lip value load and build flat instead of erroring.
+export function surfaceRelief(_surfName: string, _d: SurfaceDetail): number {
   return 0;
 }
 

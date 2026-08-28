@@ -19,16 +19,28 @@ const SURFACE_MESH: Record<string, string> = {
 // Patches follow the ground they sit on, so they work on an elevated circuit.
 // They sit a hair BELOW the racing surface for the same reason run-off does:
 // where a patch meets the track, the track must be the surface you see.
-const PATCH_SINK = 0.03;
+// Just enough to stop a patch z-fighting the road where the two overlap, and
+// far below anything the eye or a wheel reads as a step. It used to be 0.03,
+// which put every patch a visible 3 cm below the tarmac it adjoined.
+const PATCH_SINK = 0.005;
 
 export function buildPatches(patches: SurfacePatch[], samples: CenterlineSample[]): MeshData[] {
   if (!patches?.length || samples.length < 2) return [];
+  // Height of the track at (x, y), INTERPOLATED along the centreline. Snapping
+  // to the nearest sample made this a staircase: on a gradient a patch could
+  // land half a sample spacing's worth of climb away from the tarmac it was
+  // supposed to sit flush with - several cm on a hilly track, and the steeper
+  // the track the worse it got.
   const zAt = (x: number, y: number): number => {
-    let bz = 0, bd = Infinity;
-    for (const s of samples) {
-      const dx = x - s.pos[0], dy = y - s.pos[1];
-      const d = dx * dx + dy * dy;
-      if (d < bd) { bd = d; bz = s.pos[2]; }
+    let bz = samples[0].pos[2], bd = Infinity;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i].pos, b = samples[i + 1].pos;
+      const ex = b[0] - a[0], ey = b[1] - a[1];
+      const len2 = ex * ex + ey * ey;
+      const t = len2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / len2)) : 0;
+      const px = a[0] + ex * t, py = a[1] + ey * t;
+      const d = (x - px) * (x - px) + (y - py) * (y - py);
+      if (d < bd) { bd = d; bz = a[2] + (b[2] - a[2]) * t; }
     }
     return bz;
   };

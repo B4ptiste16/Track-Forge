@@ -410,17 +410,12 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         p.decor = { ...(p.decor ?? { trees: 0, grandstands: false }), lightSpacing: v };
         ok(v > 0 ? `floodlight masts every ${v} m` : 'no floodlights'); break;
       }
-      case 'GRASSLIP': {
-        const v = num(a[0]);
-        if (v === null) { err('GRASSLIP needs metres'); break; }
-        p.surfaceDetail = { ...(p.surfaceDetail ?? { grassHeight: 0, gravelDepth: 0 }), grassHeight: v };
-        ok(`grass lip = ${v} m`); break;
-      }
+      // Kept as accepted-but-ignored rather than an error: old sheets carry
+      // these lines, and failing them would fail the whole build over
+      // something the builder now decides for itself.
+      case 'GRASSLIP':
       case 'GRAVELDEPTH': {
-        const v = num(a[0]);
-        if (v === null) { err('GRAVELDEPTH needs metres'); break; }
-        p.surfaceDetail = { ...(p.surfaceDetail ?? { grassHeight: 0, gravelDepth: 0 }), gravelDepth: v };
-        ok(`gravel depth = ${v} m`); break;
+        ok('ignored - grass, gravel and track are always built level'); break;
       }
       // A patch of surface exactly where you say. PATCHAT places it beside a
       // corner (no world coordinates needed) — the way to give a corner real
@@ -659,8 +654,6 @@ SCENERY & SURFACE
       leaving them on costs nothing and covers players without CSP.
   GRANDSTANDS on|off
   LIGHTS <spacing_m>|off
-  GRASSLIP <m>                    how far grass sits above the tarmac
-  GRAVELDEPTH <m>                 how far a gravel trap sits below it
   BUILDING offices|glass|brick|hangar <x> <y> <w> <d> <h> [rot_deg]
   ADVERTS on|off                  AC BAPTOU hoardings along both barriers
   PROP <name> <dist_m> <left|right> <offset_m> [rot_deg]
