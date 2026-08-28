@@ -144,6 +144,7 @@ export interface PitStructures {
   building: MeshData; // DECOR_PITBLDG (visual)
   garage: MeshData; // DECOR_GARAGE door quads (visual)
   lines: MeshData; // PIT_LINE painted markings (visual)
+  sign: MeshData; // DECOR_PITSIGN speed-limit marker board (visual)
 }
 
 export function buildPitStructures(
@@ -156,7 +157,8 @@ export function buildPitStructures(
   const building: MeshData = { name: 'DECOR_PITBLDG', vertices: [], faces: [] };
   const garage: MeshData = { name: 'DECOR_GARAGE', vertices: [], faces: [] };
   const lines: MeshData = { name: 'PIT_LINE', vertices: [], faces: [] };
-  const out = { wall, building, garage, lines };
+  const signMesh: MeshData = { name: 'DECOR_PITSIGN', vertices: [], faces: [], uvs: [] };
+  const out = { wall, building, garage, lines, sign: signMesh };
   if (!project.pit.enabled || !(project.pit.structures ?? true) || samples.length < 2) return out;
 
   const z = pitZone(project, totalLength);
@@ -291,6 +293,74 @@ export function buildPitStructures(
     let i1 = i0;
     for (const i of idx) { if (rel(i) >= d + 0.4) { i1 = i; break; } }
     if (i1 !== i0) stripe(i0, i1, 0.4, project.pit.width - 0.5);
+  }
+
+  // --- (4) pit SPEED LIMIT line + marker board -----------------------------
+  // A real pit lane tells you where the limiter has to be on: a white line
+  // right across the lane, with a board beside it. The limit begins just after
+  // the entry taper (the lane is at full width by then) and ends before the
+  // exit taper. `idx` only spans the box zone, so these need their own lookup
+  // over the WHOLE pit zone.
+  const nearest = (d: number): number | null => {
+    let best: number | null = null, bestGap = Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const gap = Math.abs(rel(i) - d);
+      if (gap < bestGap) { bestGap = gap; best = i; }
+    }
+    return bestGap <= 6 ? best : null;
+  };
+  const crossLine = (i: number) => {
+    const s0 = samples[i];
+    const fx = Math.cos(s0.heading), fy = Math.sin(s0.heading);
+    const LEN = 0.5;
+    const a0 = at(i, 0.25), a1 = at(i, project.pit.width - 0.25);
+    const b = lines.vertices.length;
+    lines.vertices.push(
+      [a0[0], a0[1], a0[2] + LIFT], [a1[0], a1[1], a1[2] + LIFT],
+      [a0[0] + fx * LEN, a0[1] + fy * LEN, a0[2] + LIFT],
+      [a1[0] + fx * LEN, a1[1] + fy * LEN, a1[2] + LIFT],
+    );
+    addQuadUp(lines.vertices, lines.faces, b, b + 1, b + 3, b + 2);
+  };
+  const iLimit = nearest(z.start + z.taper + 1);
+  const iEnd = nearest(z.end - z.taper - 1);
+  if (iLimit !== null) crossLine(iLimit);
+  if (iEnd !== null) crossLine(iEnd);
+
+  // Board on a post, just beyond the lane's outer edge, facing the cars coming
+  // down the lane. It sits BEFORE the garage frontage (which starts at boxA),
+  // so it never lands inside the building.
+  if (iLimit !== null) {
+    const s0 = samples[iLimit];
+    const fwd: Vec3 = [Math.cos(s0.heading), Math.sin(s0.heading), 0];
+    const facing: Vec3 = [-fwd[0], -fwd[1], 0]; // read by a car driving in
+    const foot = at(iLimit, project.pit.width + 0.8);
+    const [lx, ly] = perpLeft(s0.heading);
+    const across: [number, number] = [lx * sign, ly * sign];
+    const PW = 1.3, PH = 1.0, Z0 = 1.0; // panel width/height, bottom height
+    const panel = (u: number) => [foot[0] + across[0] * u, foot[1] + across[1] * u] as [number, number];
+    const pA = panel(-PW / 2), pB = panel(PW / 2);
+    for (const dir of [facing, fwd]) { // both sides, so it is never invisible
+      const b = signMesh.vertices.length;
+      signMesh.vertices.push(
+        [pA[0], pA[1], foot[2] + Z0], [pA[0], pA[1], foot[2] + Z0 + PH],
+        [pB[0], pB[1], foot[2] + Z0], [pB[0], pB[1], foot[2] + Z0 + PH],
+      );
+      signMesh.uvs!.push([0, 0], [0, 1], [1, 0], [1, 1]);
+      addQuadToward(signMesh.vertices, signMesh.faces, b, b + 1, b + 3, b + 2, dir);
+    }
+    // post
+    const POST = 0.06;
+    for (const dir of [facing, fwd]) {
+      const q1 = panel(-POST), q2 = panel(POST);
+      const b = signMesh.vertices.length;
+      signMesh.vertices.push(
+        [q1[0], q1[1], foot[2]], [q1[0], q1[1], foot[2] + Z0],
+        [q2[0], q2[1], foot[2]], [q2[0], q2[1], foot[2] + Z0],
+      );
+      signMesh.uvs!.push([0.46, 0.02], [0.46, 0.06], [0.54, 0.02], [0.54, 0.06]);
+      addQuadToward(signMesh.vertices, signMesh.faces, b, b + 1, b + 3, b + 2, dir);
+    }
   }
   return out;
 }

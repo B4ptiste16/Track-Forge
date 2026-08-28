@@ -529,6 +529,34 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       ctx.textBaseline = 'alphabetic';
       break;
     }
+    case 'DECOR_PITSIGN': {
+      // Pit speed-limit board: the regulation red-ringed roundel over a
+      // "PIT LANE" caption, so it reads as a real sign rather than a blank
+      // panel. 80 km/h is Assetto Corsa's default pit limiter speed.
+      ctx.fillStyle = '#f4f4f2';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = px(2);
+      ctx.strokeRect(px(3), px(3), SIZE - px(6), SIZE - px(6));
+      const cx = SIZE / 2, cy = SIZE * 0.42, r = SIZE * 0.29;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = r * 0.22;
+      ctx.strokeStyle = '#c8102e';
+      ctx.stroke();
+      ctx.fillStyle = '#15171a';
+      ctx.font = `bold ${Math.round(r * 0.95)}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('80', cx, cy);
+      ctx.font = `bold ${Math.round(SIZE * 0.11)}px Arial, Helvetica, sans-serif`;
+      ctx.fillText('PIT LANE', cx, SIZE * 0.85);
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
+      break;
+    }
     case 'DECOR_ADVERT1':
     case 'DECOR_ADVERT2':
     case 'DECOR_ADVERT3':

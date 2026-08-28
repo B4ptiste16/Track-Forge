@@ -56,6 +56,7 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_FRAME') return '#7c8087';
   if (name === 'DECOR_ARCH') return '#f2f2f2';
   if (name === 'DECOR_MARKER') return '#f2f2f2';
+  if (name === 'DECOR_PITSIGN') return '#f4f4f2';
   if (name === 'DECOR_GANTRY') return '#b9bcc2';
   if (name === 'DECOR_LIGHTS') return '#111318';
   if (name === 'DECOR_TREE') return '#4a6b32'; // foliage base (vertex colours vary each tree)

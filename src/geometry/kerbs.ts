@@ -1,7 +1,7 @@
 import type { KerbType, CornerConfig, Theme } from '../types';
 import type { CenterlineSample, MeshData, SegmentSpan, Vec3 } from './types';
 import { perpLeft, leftEdge, rightEdge } from './frames';
-import { addQuadUp } from './meshbuilder';
+import { addQuadUp, addQuadToward } from './meshbuilder';
 
 export const KERB_WIDTH = 1.0; // representative kerb width (m); real width varies per profile
 const KERB_LIFT = 0.01; // tiny lift so kerbs don't z-fight the road
@@ -251,7 +251,9 @@ function emitSub(
   const sign = side === 'left' ? 1 : -1;
   const d0 = run[0].dist;
   const d1 = run[run.length - 1].dist;
+  const roadZ: number[] = [];
   run.forEach((s) => {
+    roadZ.push(s.pos[2]);
     const [lx, ly] = perpLeft(s.heading);
     const inner = side === 'left' ? leftEdge(s, width) : rightEdge(s, width);
     const color = stripe ? stripe[Math.floor(s.dist / STRIPE_LEN) % stripe.length] : null;
@@ -280,4 +282,31 @@ function emitSub(
       addQuadUp(mesh.vertices, mesh.faces, a, b, d, e);
     }
   }
+
+  // SKIRT the open edges. Without this the kerb is a bare ribbon FLOATING
+  // KERB_LIFT above the tarmac with nothing closing its sides, so you see
+  // straight underneath it. It shows up worst at the start of a run, where the
+  // ribbon tapers to a point: a black wedge between the road and a grass verge
+  // that stands 6 cm proud beside it. Drop a vertical face from each outside
+  // edge down INTO the road surface. Only the true outside edges get one - the
+  // seam between the base and the raised (hi) sub-mesh is interior, and a skirt
+  // there would be a wall down the middle of the kerb.
+  const BURY = 0.05; // below the road, so the skirt can never float in turn
+  const vAt = (r: number, c: number) => start + r * rowSize + (c - cFrom);
+  const edgeSkirt = (col: number, outSign: number) => {
+    for (let r = 0; r < run.length - 1; r++) {
+      const i0 = vAt(r, col), i1 = vAt(r + 1, col);
+      const t0 = mesh.vertices[i0], t1 = mesh.vertices[i1];
+      const b = mesh.vertices.length;
+      mesh.vertices.push([t0[0], t0[1], roadZ[r] - BURY], [t1[0], t1[1], roadZ[r + 1] - BURY]);
+      // keep the parallel per-vertex arrays in step or the mesh desyncs
+      if (mesh.colors && mesh.colors.length) mesh.colors.push(mesh.colors[i0], mesh.colors[i1]);
+      if (mesh.uvs && mesh.uvs.length) mesh.uvs.push(mesh.uvs[i0], mesh.uvs[i1]);
+      const [lx, ly] = perpLeft(run[r].heading);
+      const outward: Vec3 = [lx * sign * outSign, ly * sign * outSign, 0];
+      addQuadToward(mesh.vertices, mesh.faces, i0, b, b + 1, i1, outward);
+    }
+  };
+  if (cFrom === 0) edgeSkirt(cFrom, -1);        // track-facing edge
+  if (cTo === shape.cols) edgeSkirt(cTo, 1);    // verge-facing edge
 }

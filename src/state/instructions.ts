@@ -11,7 +11,7 @@
 // A bad line never aborts the build — it is reported and the rest still runs,
 // so one typo in a 200-line sheet doesn't cost you the whole circuit.
 import type {
-  Building, BuildingKind, Direction, EscapeType, KerbType, Segment, StripCfg,
+  Building, BuildingKind, Direction, KerbType, Segment, StripCfg,
   PatchSurface, StripTexture, Theme, TrackProject, TrackProp, WallStyle,
 } from '../types';
 import { newSegId, newZoneId, syncCorners } from './project';
@@ -28,7 +28,6 @@ export interface InstructionResult {
 
 const KERBS: KerbType[] = ['none', 'painted', 'flat', 'serrated', 'ripple', 'sausage', 'tall', 'combo'];
 const TEXTURES: StripTexture[] = ['grass', 'gravel', 'gravel_spaced', 'concrete', 'tarmac', 'dirt'];
-const ESCAPES: EscapeType[] = ['none', 'tarmac', 'sausage', 'slalom', 'gravel'];
 const WALL_STYLES: WallStyle[] = ['solid', 'armco', 'tecpro', 'blocks', 'hay'];
 const THEMES: Theme[] = ['tarmac_day', 'tarmac_dusk', 'desert', 'france'];
 const BUILDINGS: BuildingKind[] = ['offices', 'glass', 'brick', 'hangar'];
@@ -78,6 +77,30 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
     // corner list has to be brought up to date with the segments added SO FAR —
     // otherwise an index past the starting project's corner count silently did
     // nothing. Returns false (and reports) when the index doesn't exist.
+    // Arc length of corner i, so the sheet can be told the kerb lengths it is
+    // actually getting. Without this "lengths auto" is a black box and there is
+    // no way to tell a generous kerb from a stub without exporting and looking.
+    const cornerArc = (i: number): number | null => {
+      let n = 0;
+      for (const sg of segs) {
+        if (sg.kind !== 'corner') continue;
+        if (n === i) return (sg.radius * Math.abs(sg.angle) * Math.PI) / 180;
+        n++;
+      }
+      return null;
+    };
+    // Mirrors computeKerbInfo's auto lengths exactly - if that changes, change
+    // this with it or the sheet is told numbers the builder does not use.
+    const kerbLens = (i: number): string => {
+      const len = cornerArc(i);
+      if (len === null) return '';
+      const c = p.corners.find((x) => x.cornerIndex === i);
+      const e = c?.entryLen ?? Math.max(25, Math.min(120, len * 0.9));
+      const ap = c?.apexLen ?? len * 0.95;
+      const x = c?.exitLen ?? Math.max(30, Math.min(150, len * 1.2));
+      const tag = c?.entryLen === undefined ? 'auto' : 'set';
+      return ` - ${tag} lengths ${Math.round(e)}/${Math.round(ap)}/${Math.round(x)} m over a ${Math.round(len)} m corner`;
+    };
     const corner = (i: number | null): boolean => {
       p.corners = syncCorners(segs, p.corners, p.road.defaultKerb);
       if (i === null || !Number.isInteger(i) || i < 0 || i >= p.corners.length) {
@@ -193,15 +216,15 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
         }
         if (!corner(i)) break;
         p.corners = p.corners.map((c) => (c.cornerIndex === i ? { ...c, entry, apex, exit } : c));
-        ok(`corner ${i} kerbs ${entry}/${apex}/${exit}`); break;
+        ok(`corner ${i} kerbs ${entry}/${apex}/${exit}${kerbLens(i)}`); break;
       }
-      case 'ESCAPE': {
-        const i = num(a[0]);
-        const t = oneOf(a[1], ESCAPES);
-        if (i === null || !t) { err(`ESCAPE needs <corner_index> ${ESCAPES.join('|')}`); break; }
-        if (!corner(i)) break;
-        p.corners = p.corners.map((c) => (c.cornerIndex === i ? { ...c, escapeType: t } : c));
-        ok(`corner ${i} escape = ${t}`); break;
+      // Escape roads are OFF to the sheet for now. They guess where a car
+      // leaves the track and place a lane on that guess; a PATCHAT run-off is
+      // put where you actually want it. The panels can still set one by hand.
+      case 'ESCAPE':
+      case 'ESCAPEFURNITURE': {
+        err('ESCAPE is disabled - use RUNOFF <corner> <texture> <width> or PATCHAT <corner> <texture> <along> <out> instead');
+        break;
       }
       // Kerb SIZE for one corner. The kerb TYPE is set by CORNERKERB; this is
       // how wide the kerb is and how far it runs before / through / after the
@@ -220,26 +243,7 @@ export function applyInstructions(base: TrackProject, text: string): Instruction
           ...(aL !== null ? { apexLen: aL } : {}),
           ...(xL !== null ? { exitLen: xL } : {}),
         } : c));
-        ok(`corner ${i} kerb ${w} m wide${eL !== null ? `, lengths ${eL}/${aL ?? '-'}/${xL ?? '-'} m` : ''}`);
-        break;
-      }
-      // What sits IN an escape road. Both default on.
-      case 'ESCAPEFURNITURE': {
-        const i = num(a[0]);
-        const what = oneOf(a[1], ['bollards', 'kerbs', 'both', 'none'] as const);
-        const on = onOff(a[2]);
-        if (i === null || !what) {
-          err('ESCAPEFURNITURE needs <corner_index> bollards|kerbs|both|none [on|off]'); break;
-        }
-        if (!corner(i)) break;
-        // "none" is shorthand for turning everything off; otherwise on/off applies.
-        const val = what === 'none' ? false : (on ?? true);
-        p.corners = p.corners.map((c) => (c.cornerIndex === i ? {
-          ...c,
-          ...(what === 'bollards' || what === 'both' || what === 'none' ? { escapeBollards: val } : {}),
-          ...(what === 'kerbs' || what === 'both' || what === 'none' ? { escapeKerbs: val } : {}),
-        } : c));
-        ok(`corner ${i} escape furniture: ${what} ${val ? 'on' : 'off'}`);
+        ok(`corner ${i} kerb ${w} m wide${kerbLens(i)}`);
         break;
       }
       case 'INSIDE': {
@@ -594,20 +598,21 @@ PER-CORNER (corner_index counts corners only, from 0, in lap order)
   kerb is one a driver can put two wheels on, a tall sausage is one that will
   unsettle the car. Typical widths 0.8-1.5 m. Kerbs should be GENEROUS — real
   ones start well before turn-in and run a long way down the exit while the car
-  is still unwinding lock. Entry 40-90 m, exit 50-120 m, and the apex kerb
-  normally spans the whole arc and spills onto the straights either side. Short
-  kerbs look like stubs stuck on the corner. Omit the lengths entirely and the
-  builder scales them to the corner for you, which is usually the best choice.
+  is still unwinding lock. Short kerbs look like stubs stuck on the corner.
+  OMIT THE LENGTHS and they scale with the corner, which is usually the best
+  choice. What auto gives you, for a corner of arc length L:
+      entry  0.9 x L   (never below 25 m, never above 120 m)
+      apex   0.95 x L  (centred on the arc, spilling onto both straights)
+      exit   1.2 x L   (never below 30 m, never above 150 m)
+  So a 40 m hairpin gets 36/38/48 m and a 150 m sweeper 120/143/150 m. The app
+  echoes the metres you actually get after every CORNERKERB and KERBSIZE line,
+  so read them back rather than guessing whether a kerb came out long enough.
   CORNERKERB <i> <entry> <apex> <exit>    kerb TYPE for each part of the corner
       none|painted|flat|serrated|ripple|sausage|tall|combo
   KERBSIZE <i> <width_m> [entry_len_m] [apex_len_m] [exit_len_m]
       Lengths are optional — leave them off and they scale with the corner.
       e.g.  KERBSIZE 3 1.2               1.2 m wide, lengths auto (recommended)
             KERBSIZE 3 1.2 60 140 80     explicit: 60 m in, 140 m through, 80 m out
-  ESCAPEFURNITURE <i> bollards|kerbs|both|none [on|off]
-      Escape roads carry edge bollards (and speed-bump kerbs on the 'sausage'
-      type) by default. Turn them off for a clean paved run-off:
-            ESCAPEFURNITURE 4 none
   INSIDE <i> grass|gravel|concrete
 
 TRACKSIDE / RUN-OFF
@@ -620,10 +625,6 @@ TRACKSIDE / RUN-OFF
   ZONE left|right|both <from_m> <to_m> <texture> <width_m> [wall <dist_m>]
       Only if you want an exact distance range along the lap.
 
-ESCAPE ROADS — place them ONLY where a car would really overshoot: the end of a
-long straight, or a slow chicane. Do not put one on every corner.
-  ESCAPE <corner_index> none|tarmac|sausage|slalom|gravel
-
 BARRIERS
   WALLS on|off [height_m] [solid|armco|tecpro|blocks|hay]
 
@@ -635,10 +636,9 @@ PIT
   GRID <n>
 
 SURFACE PATCHES — put run-off exactly where you want it
-  Prefer these over escape roads. An escape road GUESSES where a car leaves the
-  track; a patch is placed. Give a corner real run-off by laying a patch on its
-  outside, and leave ESCAPE at none unless you specifically want a rejoining
-  escape lane.
+  This is how you give a corner run-off. Escape roads are not available to the
+  sheet: they guess where a car leaves the track, whereas a patch goes exactly
+  where you put it. Lay a patch on the outside of the corner.
   PATCHAT <corner_index> <concrete|tarmac|gravel|grass|dirt> <along_m> <out_m> [outside|inside]
       e.g.  PATCHAT 3 tarmac 90 30       90 m long, 30 m deep, outside turn 3
             PATCHAT 5 gravel 60 25       gravel bed on the outside of turn 5

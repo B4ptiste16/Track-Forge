@@ -369,7 +369,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
     ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
-    esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.building, pitDeco.garage, ...bldgs, ...propMeshes,
+    esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.building, pitDeco.garage, pitDeco.sign, ...bldgs, ...propMeshes,
   ].filter((m) => m.faces.length > 0);
 
   // Every mesh needs UVs for its texture; anything that didn't set its own
