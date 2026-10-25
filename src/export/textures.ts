@@ -120,7 +120,120 @@ function blade(ctx: CanvasRenderingContext2D, x: number, y: number, len: number,
 
 // Draw the texture for one surface. Rich enough to read as a material in-game;
 // the UVs exported in the FBX make stripes/bands land where they should.
-function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
+// ---------------------------------------------------------------------------
+// SHADING TOOLKIT
+//
+// The generators used to be flat fillRect blocks, and that - far more than the
+// resolution - is what made the track read as generated. A painted grey stripe
+// cannot look like a curved Armco beam; it needs a gradient across its height
+// so the eye reads a cylinder. Real surfaces also carry dirt where water runs,
+// darkness where two parts meet, and a highlight on the edge that faces the
+// sky. These helpers supply exactly those four things.
+// ---------------------------------------------------------------------------
+
+type RGB = [number, number, number];
+
+function shade(c: RGB, k: number, a = 1): string {
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return `rgba(${f(c[0])},${f(c[1])},${f(c[2])},${a})`;
+}
+
+// Vertical gradient over a band, from c0 at y0 to c1 at y1.
+function vgrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, stops: [number, string][]): void {
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  for (const [t, col] of stops) g.addColorStop(Math.max(0, Math.min(1, t)), col);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, Math.min(y0, y1), SIZE, Math.abs(y1 - y0));
+}
+
+// A horizontal bar lit as a CYLINDER: dark at both edges, hot highlight just
+// above centre. This is what turns a flat stripe into a rolled steel beam.
+function cylBar(ctx: CanvasRenderingContext2D, y0: number, h: number, base: RGB): void {
+  vgrad(ctx, y0, y0 + h, [
+    [0, shade(base, 0.45)],
+    [0.18, shade(base, 0.8)],
+    [0.34, shade(base, 1.35)],
+    [0.5, shade(base, 1.08)],
+    [0.82, shade(base, 0.66)],
+    [1, shade(base, 0.38)],
+  ]);
+}
+
+// Ambient occlusion: a soft dark falloff along one edge of a rectangle. `dir`
+// is the direction the shadow spreads INTO the shape.
+function ao(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
+  dir: 'down' | 'up' | 'right' | 'left', strength = 0.45): void {
+  const horiz = dir === 'left' || dir === 'right';
+  const g = horiz
+    ? ctx.createLinearGradient(dir === 'right' ? x : x + w, 0, dir === 'right' ? x + w : x, 0)
+    : ctx.createLinearGradient(0, dir === 'down' ? y : y + h, 0, dir === 'down' ? y + h : y);
+  g.addColorStop(0, `rgba(0,0,0,${strength})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x, y, w, h);
+}
+
+// Vertical weathering: rain and dirt running DOWN a surface, strongest under
+// whatever it ran off. Tapers out, never a hard line.
+function streaks(ctx: CanvasRenderingContext2D, count: number, yFrom: number, len: number, alpha: number): void {
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * SIZE;
+    const w = px(0.6) + Math.random() * px(2.4);
+    const l = len * (0.35 + Math.random() * 0.9);
+    const g = ctx.createLinearGradient(0, yFrom, 0, yFrom + l);
+    g.addColorStop(0, `rgba(30,26,20,${alpha})`);
+    g.addColorStop(1, 'rgba(30,26,20,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, yFrom, w, l);
+  }
+}
+
+// Grime gathering at the foot of a vertical surface - every real barrier has it.
+function groundGrime(ctx: CanvasRenderingContext2D, height = 0.26, alpha = 0.5): void {
+  vgrad(ctx, SIZE * (1 - height), SIZE, [
+    [0, 'rgba(42,36,28,0)'],
+    [0.55, `rgba(42,36,28,${alpha * 0.5})`],
+    [1, `rgba(28,24,18,${alpha})`],
+  ]);
+}
+
+// A bolt / rivet head with its own tiny highlight and drop shadow.
+function bolt(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.arc(x + r * 0.25, y + r * 0.3, r, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, 'rgba(236,238,242,0.95)');
+  g.addColorStop(0.65, 'rgba(150,155,163,0.9)');
+  g.addColorStop(1, 'rgba(92,96,104,0.9)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+}
+
+// Scuffed rubber where cars have brushed a barrier.
+function rubberScuff(ctx: CanvasRenderingContext2D, count: number, yc: number, spread: number): void {
+  // Clustered and TAPERED. Evenly scattered hard-edged dashes read as dirt
+  // speckle floating on the surface rather than rubber laid down by a car.
+  const clusters = Math.max(1, Math.round(count / 4));
+  for (let c = 0; c < clusters; c++) {
+    const cx = Math.random() * SIZE;
+    const cy = yc + (Math.random() - 0.5) * spread;
+    for (let i = 0; i < 4; i++) {
+      const x = cx + (Math.random() - 0.5) * px(26);
+      const y = cy + (Math.random() - 0.5) * px(10);
+      const w = px(8) + Math.random() * px(34);
+      const h = px(1) + Math.random() * px(2.4);
+      const g = ctx.createLinearGradient(x, 0, x + w, 0);
+      const a = 0.1 + Math.random() * 0.26;
+      g.addColorStop(0, 'rgba(18,16,16,0)');
+      g.addColorStop(0.4, `rgba(18,16,16,${a})`);
+      g.addColorStop(1, 'rgba(18,16,16,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, w, h);
+    }
+  }
+}
+
+export function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
   const ctx = c.getContext('2d')!;
@@ -130,18 +243,38 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
   switch (surface) {
     case '1ROAD':
     case '1PIT': {
-      grain(ctx, 10);
-      // asphalt = a mix of aggregate sizes in binder, not uniform speckle
-      speckle(ctx, dens(900), [px(0.4), px(1.1)], 0.16, true); // fine aggregate
-      speckle(ctx, dens(500), [px(0.4), px(1.0)], 0.18, false);
-      speckle(ctx, dens(90), [px(1.1), px(2.3)], 0.13, true);  // coarser stones
-      // broad tonal patches: laid in passes, so asphalt is never one flat tone
+      // ASPHALT = stones in binder. The broad tonal patches used to run at
+      // alpha 0.5 and dens(14) - 56 overlapping blobs - which read as a
+      // stained carpet and swamped the aggregate underneath. The stones are
+      // the texture; the patches are a whisper on top of them.
       const [rr, gg, bb] = hexRgb(hex);
-      for (let i = 0; i < dens(14); i++) {
-        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(18 + Math.random() * 46);
-        const d = -7 + Math.random() * 14;
+      grain(ctx, 9);
+      // Each stone gets a lit cap and a shadow offset, which is what makes a
+      // flat speckle read as chippings with depth.
+      for (let i = 0; i < dens(1500); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const r = px(0.35) + Math.random() * px(1.5);
+        const d = -26 + Math.random() * 62;
+        ctx.fillStyle = `rgba(0,0,0,${0.1 + Math.random() * 0.18})`;
+        ctx.fillRect(x + r * 0.45, y + r * 0.5, r * 1.5, r * 1.3);
+        ctx.fillStyle = `rgba(${rr + d},${gg + d},${bb + d},${0.45 + Math.random() * 0.45})`;
+        ctx.fillRect(x, y, r * 1.5, r * 1.3);
+      }
+      for (let i = 0; i < dens(120); i++) { // coarser chippings catching light
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const r = px(1.4) + Math.random() * px(1.9);
+        ctx.fillStyle = `rgba(0,0,0,0.26)`;
+        ctx.fillRect(x + r * 0.4, y + r * 0.45, r, r * 0.9);
+        const d = 16 + Math.random() * 46;
+        ctx.fillStyle = `rgba(${rr + d},${gg + d},${bb + d},0.6)`;
+        ctx.fillRect(x, y, r, r * 0.9);
+      }
+      speckle(ctx, dens(420), [px(0.3), px(0.8)], 0.14, false); // binder pitting
+      for (let i = 0; i < dens(4); i++) {   // laid in passes - barely-there tone
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(40 + Math.random() * 70);
+        const d = -5 + Math.random() * 10;
         const gr = ctx.createRadialGradient(x, y, 1, x, y, rad);
-        gr.addColorStop(0, `rgba(${rr + d},${gg + d},${bb + d},0.5)`);
+        gr.addColorStop(0, `rgba(${rr + d},${gg + d},${bb + d},0.12)`);
         gr.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = gr;
         ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
@@ -307,75 +440,184 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       break;
     }
     case '1KERB': {
+      // v (vertical here) runs ACROSS the kerb, track edge -> outer edge. A
+      // kerb is a cast ramp, so it needs cross-profile shading: the inner lip
+      // sits in the road's shadow, the crown catches the sky, the outer edge
+      // falls away into dirt. Flat colour bands with a line ruled between them
+      // read as painted tarmac, not concrete.
       const pattern = KERB_PATTERNS[theme] ?? KERB_PATTERNS.tarmac_day;
       bandsAcross(ctx, pattern);
-      grain(ctx, 7);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)'; // paint edges between stripes
       const w = SIZE / pattern.length;
-      for (let i = 1; i < pattern.length; i++) ctx.fillRect(Math.round(i * w) - 1, 0, 2, SIZE);
+      for (let i = 1; i < pattern.length; i++) { // cast joints between blocks
+        const x = Math.round(i * w);
+        ctx.fillStyle = 'rgba(0,0,0,0.42)';
+        ctx.fillRect(x - px(1), 0, px(2), SIZE);
+        ao(ctx, x + px(1), 0, px(5), SIZE, 'right', 0.26);
+      }
+      // the ramp profile
+      vgrad(ctx, 0, SIZE, [
+        [0, 'rgba(0,0,0,0.34)'],      // inner lip, shadowed by the road
+        [0.1, 'rgba(0,0,0,0.05)'],
+        [0.42, 'rgba(255,255,255,0.2)'], // crown
+        [0.78, 'rgba(0,0,0,0.04)'],
+        [1, 'rgba(0,0,0,0.3)'],       // outer edge drops into the verge
+      ]);
+      grain(ctx, 6);
+      speckle(ctx, dens(260), [px(0.3), px(1.2)], 0.1, true); // concrete aggregate
+      // worn paint + rubber on the inner half, where the cars actually ride it
+      for (let i = 0; i < dens(70); i++) {
+        const x = Math.random() * SIZE;
+        const y = Math.random() * SIZE * 0.6;
+        ctx.fillStyle = `rgba(40,36,34,${0.06 + Math.random() * 0.22})`;
+        ctx.fillRect(x, y, px(3) + Math.random() * px(16), px(0.8) + Math.random() * px(2.2));
+      }
+      for (let i = 0; i < dens(18); i++) { // chipped paint showing concrete
+        ctx.fillStyle = `rgba(236,234,228,${0.05 + Math.random() * 0.1})`;
+        ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, px(1) + Math.random() * px(3), px(1) + Math.random() * px(2));
+      }
+      vgrad(ctx, SIZE * 0.82, SIZE, [ // grass/dirt staining at the outer edge
+        [0, 'rgba(58,52,34,0)'], [1, 'rgba(58,52,34,0.4)'],
+      ]);
       break;
     }
     case '1KERBHI': {
-      grain(ctx, 9);
+      // The raised sausage: a cylinder, so it needs a cylinder's shading.
+      cylBar(ctx, 0, SIZE, hexRgb(hex) as RGB);
+      grain(ctx, 7);
+      speckle(ctx, dens(200), [px(0.3), px(1.1)], 0.1, true);
+      rubberScuff(ctx, dens(22), SIZE * 0.45, SIZE * 0.5);
       break;
     }
     case '1WALL': {
-      // v runs bottom (y=SIZE) -> top (y=0) on wall quads.
+      // v runs bottom (y=SIZE) -> top (y=0), so y=0 is the TOP of the barrier
+      // and y=SIZE sits on the ground. Grime collects at high y, rain streaks
+      // run toward high y, and the sky-facing highlight belongs at low y.
       if (wallStyle === 'tecpro') {
-        ctx.fillStyle = '#c8322e';
-        ctx.fillRect(0, 0, SIZE, SIZE);
-        ctx.fillStyle = '#e9eaec'; // white top band
-        ctx.fillRect(0, 0, SIZE, Math.round(SIZE * 0.28));
-        grain(ctx, 5);
-        ctx.fillStyle = 'rgba(0,0,0,0.28)'; // block joints
-        for (let x = 0; x < SIZE; x += 48) ctx.fillRect(x, 0, 3, SIZE);
-      } else if (wallStyle === 'armco') {
-        ctx.fillStyle = '#9aa0a8';
-        ctx.fillRect(0, 0, SIZE, SIZE);
-        grain(ctx, 6);
-        // two corrugated rails
-        for (const yc of [SIZE * 0.30, SIZE * 0.66]) {
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          ctx.fillRect(0, yc - 14, SIZE, 10);
-          ctx.fillStyle = 'rgba(0,0,0,0.30)';
-          ctx.fillRect(0, yc + 2, SIZE, 6);
+        // Moulded plastic energy-absorber blocks: red body, white cap, and a
+        // pronounced roll on every moulded edge.
+        const red: RGB = [200, 50, 46];
+        const capH = SIZE * 0.3;
+        vgrad(ctx, 0, capH, [[0, '#fbfcfd'], [0.45, '#e4e6ea'], [1, '#c2c6cd']]);
+        vgrad(ctx, capH, SIZE, [
+          [0, shade(red, 1.18)], [0.3, shade(red, 1.0)], [1, shade(red, 0.64)],
+        ]);
+        grain(ctx, 4);
+        ao(ctx, 0, capH, SIZE, px(10), 'down', 0.5);      // under the white cap
+        ao(ctx, 0, 0, SIZE, px(5), 'down', 0.3);          // top lip
+        const blockW = px(46);
+        for (let x = 0; x < SIZE; x += blockW) {
+          ao(ctx, x, 0, px(9), SIZE, 'right', 0.5);       // moulded vertical seam
+          ao(ctx, x - px(9), 0, px(9), SIZE, 'left', 0.3);
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';       // seam highlight
+          ctx.fillRect(x + px(9), 0, px(1.5), SIZE);
         }
-        ctx.fillStyle = 'rgba(0,0,0,0.35)'; // posts
-        for (let x = 16; x < SIZE; x += 64) ctx.fillRect(x, 0, 5, SIZE);
-      } else if (wallStyle === 'blocks') {
-        ctx.fillStyle = '#2c2e33'; // tyre stacks
-        ctx.fillRect(0, 0, SIZE, SIZE);
-        grain(ctx, 7);
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.lineWidth = 3;
-        for (let y = 16; y < SIZE; y += 32) {
-          for (let x = 16; x < SIZE + 16; x += 32) {
-            ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = 'rgba(28,28,32,0.5)';             // retaining straps
+        for (const yc of [SIZE * 0.46, SIZE * 0.78]) {
+          ctx.fillRect(0, yc, SIZE, px(4));
+          ao(ctx, 0, yc + px(4), SIZE, px(5), 'down', 0.35);
+        }
+        rubberScuff(ctx, dens(14), SIZE * 0.62, SIZE * 0.3);
+        groundGrime(ctx, 0.2, 0.45);
+      } else if (wallStyle === 'armco') {
+        // Galvanised W-beam: two rails, each a pair of cylindrical humps, on
+        // posts. The humps are what make it read as rolled steel rather than
+        // a painted grey stripe.
+        const steel: RGB = [154, 160, 168];
+        vgrad(ctx, 0, SIZE, [[0, shade(steel, 1.1)], [0.6, shade(steel, 0.92)], [1, shade(steel, 0.62)]]);
+        speckle(ctx, dens(260), [0.5, 2.2], 0.07, true);  // galvanising mottle
+        const postW = px(13), postStep = px(66);
+        for (let x = px(10); x < SIZE; x += postStep) {   // posts BEHIND the rails
+          ctx.fillStyle = shade(steel, 0.72);
+          ctx.fillRect(x, 0, postW, SIZE);
+          ao(ctx, x + postW, 0, px(7), SIZE, 'right', 0.42);
+          ao(ctx, x - px(7), 0, px(7), SIZE, 'left', 0.42);
+        }
+        for (const yc of [SIZE * 0.26, SIZE * 0.62]) {    // two W-beam rails
+          const railH = px(30);
+          ao(ctx, 0, yc - px(8), SIZE, px(8), 'up', 0.4); // shadow the rail casts up
+          cylBar(ctx, yc, railH / 2, steel);              // upper hump
+          cylBar(ctx, yc + railH / 2, railH / 2, steel);  // lower hump
+          ctx.fillStyle = 'rgba(0,0,0,0.5)';              // valley between humps
+          ctx.fillRect(0, yc + railH / 2 - px(1), SIZE, px(2));
+          ao(ctx, 0, yc + railH, SIZE, px(11), 'down', 0.5); // drop shadow
+          for (let x = px(10); x < SIZE; x += postStep) {    // bolt at every post
+            bolt(ctx, x + postW / 2, yc + railH / 2, px(3.6));
           }
         }
-      } else if (wallStyle === 'hay') {
-        ctx.fillStyle = '#c9a94e'; // stacked hay bales (classic-circuit look)
+        streaks(ctx, dens(26), SIZE * 0.3, SIZE * 0.5, 0.14);
+        rubberScuff(ctx, dens(10), SIZE * 0.34, SIZE * 0.14);
+        groundGrime(ctx, 0.24, 0.5);
+      } else if (wallStyle === 'blocks') {
+        // Tyre wall: stacked tyres, each shaded as a torus with a dark hub.
+        ctx.fillStyle = '#17181c';
         ctx.fillRect(0, 0, SIZE, SIZE);
-        grain(ctx, 10);
-        const [r, g, b] = hexRgb('#c9a94e');
-        for (let i = 0; i < 1200; i++) { // straw streaks
+        const step = px(32), r = px(15);
+        for (let row = 0, y = px(16); y < SIZE + step; y += step, row++) {
+          const xOff = row % 2 ? step / 2 : 0;            // stagger the courses
+          for (let x = xOff - step; x < SIZE + step; x += step) {
+            const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.08, x, y, r);
+            g.addColorStop(0, '#5c5f66');                 // sky bounce, upper-left
+            g.addColorStop(0.42, '#3a3c42');
+            g.addColorStop(0.82, '#232428');
+            g.addColorStop(1, '#101113');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#0a0b0d';                    // hub
+            ctx.beginPath(); ctx.arc(x, y, r * 0.34, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.75)';         // contact shadow
+            ctx.lineWidth = px(1.6);
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+        ctx.fillStyle = 'rgba(214,206,186,0.5)';          // conveyor-belt straps
+        for (let y = px(16); y < SIZE; y += step * 2) {
+          ctx.fillRect(0, y - px(3), SIZE, px(6));
+          ao(ctx, 0, y + px(3), SIZE, px(5), 'down', 0.4);
+        }
+        groundGrime(ctx, 0.18, 0.55);
+      } else if (wallStyle === 'hay') {
+        // Round bales, lit as cylinders lying on their sides.
+        const straw: RGB = [201, 169, 78];
+        const baleH = px(44);
+        for (let y = 0; y < SIZE; y += baleH) cylBar(ctx, y, baleH, straw);
+        for (let i = 0; i < dens(900); i++) {             // straw fibres
           const d = -35 + Math.random() * 60;
-          ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-          ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, 3 + Math.random() * 5, 1);
+          ctx.fillStyle = `rgba(${201 + d},${169 + d},${78 + d},0.75)`;
+          ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, px(1.5) + Math.random() * px(2.5), px(0.5));
         }
-        ctx.fillStyle = 'rgba(0,0,0,0.30)'; // bale joints, brick-laid
-        for (let y = 0; y < SIZE; y += 44) ctx.fillRect(0, y, SIZE, 3);
-        for (let y = 0; y < SIZE; y += 44) {
-          const off = (y / 44) % 2 === 0 ? 0 : 40;
-          for (let x = off; x < SIZE; x += 80) ctx.fillRect(x, y, 3, 44);
+        for (let y = 0; y < SIZE; y += baleH) {           // bale ends, brick-laid
+          ao(ctx, 0, y, SIZE, px(6), 'down', 0.45);
+          const off = (y / baleH) % 2 === 0 ? 0 : px(40);
+          for (let x = off; x < SIZE; x += px(80)) ao(ctx, x, y, px(7), baleH, 'right', 0.4);
         }
-        ctx.fillStyle = 'rgba(120,80,30,0.35)'; // twine bands
-        for (let y = 12; y < SIZE; y += 44) ctx.fillRect(0, y, SIZE, 2);
+        ctx.fillStyle = 'rgba(96,66,26,0.4)';             // twine
+        for (let y = px(12); y < SIZE; y += baleH) ctx.fillRect(0, y, SIZE, px(1.5));
+        groundGrime(ctx, 0.16, 0.4);
       } else {
-        grain(ctx, 6);
-        ctx.fillStyle = 'rgba(0,0,0,0.16)'; // concrete segment joints
-        for (let x = 0; x < SIZE; x += 64) ctx.fillRect(x, 0, 2, SIZE);
-        ctx.fillRect(0, 150, SIZE, 3);
+        // Precast concrete: panels with chamfered joints, a sky-lit top edge,
+        // rain running from every joint, and rubber where cars have kissed it.
+        const conc: RGB = [176, 176, 172];
+        vgrad(ctx, 0, SIZE, [
+          [0, shade(conc, 1.1)], [0.14, shade(conc, 1.0)],
+          [0.7, shade(conc, 0.9)], [1, shade(conc, 0.66)],
+        ]);
+        grain(ctx, 5);
+        speckle(ctx, dens(180), [0.4, 1.6], 0.06, false);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';         // sky-facing top edge
+        ctx.fillRect(0, 0, SIZE, px(3));
+        ao(ctx, 0, px(3), SIZE, px(9), 'down', 0.3);
+        const panelW = px(64);
+        for (let x = 0; x < SIZE; x += panelW) {          // chamfered joints
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(x, 0, px(2.5), SIZE);
+          ao(ctx, x + px(2.5), 0, px(8), SIZE, 'right', 0.3);
+          ctx.fillStyle = 'rgba(255,255,255,0.12)';
+          ctx.fillRect(x + px(2.5), 0, px(1), SIZE);
+          streaks(ctx, 3, px(14), SIZE * 0.75, 0.1);
+        }
+        rubberScuff(ctx, dens(16), SIZE * 0.6, SIZE * 0.34);
+        streaks(ctx, dens(18), 0, SIZE * 0.8, 0.1);
+        groundGrime(ctx, 0.26, 0.5);
       }
       break;
     }
@@ -512,18 +754,27 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       const labels = ['100', '50', '25'];
       for (let bnd = 0; bnd < 3; bnd++) {
         const y0 = bnd * third;
-        ctx.fillStyle = '#f6f6f4';
-        ctx.fillRect(0, y0, SIZE, third);
-        // faint panel edge, kept inside the numbered area
-        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-        ctx.lineWidth = px(1.5);
-        ctx.strokeRect(SIZE * 0.14, y0 + px(4), SIZE * 0.83, third - px(8));
+        // Board face: not flat white. Real boards are weathered, lit from
+        // above, and sit proud of their frame.
+        vgrad(ctx, y0, y0 + third, [
+          [0, '#ffffff'], [0.3, '#f4f4f1'], [0.86, '#dcdcd6'], [1, '#c3c3bc'],
+        ]);
+        const fx = SIZE * 0.14, fy = y0 + px(4), fw = SIZE * 0.83, fh = third - px(8);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';            // recessed frame
+        ctx.fillRect(fx, fy, fw, px(2.5));
+        ctx.fillRect(fx, fy + fh - px(2.5), fw, px(2.5));
+        ao(ctx, fx, fy, fw, px(9), 'down', 0.3);      // frame shadows the face
+        ctx.strokeStyle = 'rgba(20,22,26,0.85)';      // black border, as on a real board
+        ctx.lineWidth = px(4);
+        ctx.strokeRect(fx + px(6), fy + px(7), fw - px(12), fh - px(14));
         ctx.fillStyle = '#15171a';
         ctx.font = `bold ${Math.round(third * 0.66)}px Arial, Helvetica, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // centred within the numbered region (u 0.12..1), not the whole tile
         ctx.fillText(labels[bnd], SIZE * 0.56, y0 + third / 2);
+        streaks(ctx, 5, y0 + px(8), third * 0.8, 0.07);
+        ao(ctx, fx, y0 + third - px(14), fw, px(14), 'down', 0.28);
       }
       ctx.textAlign = 'start';
       ctx.textBaseline = 'alphabetic';
@@ -616,11 +867,36 @@ function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: Wall
       break;
     }
     case 'DECOR_STAND': {
-      bandsAcross(ctx, SEAT_PATTERNS[theme] ?? SEAT_PATTERNS.tarmac_day); // seat colour blocks
-      ctx.fillStyle = 'rgba(0,0,0,0.30)'; // seat rows
-      for (let y = 0; y < SIZE; y += 18) ctx.fillRect(0, y, SIZE, 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.15)'; // seat separations
-      for (let x = 0; x < SIZE; x += 10) ctx.fillRect(x, 0, 1, SIZE);
+      // INDIVIDUAL bucket seats rather than colour bands with lines ruled over
+      // them. Each seat gets a lit top edge and its own shadow, and the row
+      // behind casts onto the row in front - that shadowing is what stops a
+      // grandstand reading as striped wallpaper from the car.
+      bandsAcross(ctx, SEAT_PATTERNS[theme] ?? SEAT_PATTERNS.tarmac_day);
+      const rowH = px(18), seatW = px(10);
+      const img = ctx.getImageData(0, 0, SIZE, SIZE); // sample the band colours
+      const sampleAt = (x: number, y: number): RGB => {
+        const i = ((Math.floor(y) * SIZE + Math.floor(x)) * 4) | 0;
+        return [img.data[i], img.data[i + 1], img.data[i + 2]];
+      };
+      for (let y = 0; y < SIZE; y += rowH) {
+        for (let x = 0; x < SIZE; x += seatW) {
+          const base = sampleAt(Math.min(SIZE - 1, x + seatW / 2), Math.min(SIZE - 1, y + rowH / 2));
+          // a few seats sit empty or in shadow, so the block is never uniform
+          const k = 0.72 + ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1 * 0.5;
+          const pad = px(1.2);
+          const g = ctx.createLinearGradient(0, y + pad, 0, y + rowH - pad);
+          g.addColorStop(0, shade(base, k * 1.3));   // sky-lit top of the backrest
+          g.addColorStop(0.45, shade(base, k));
+          g.addColorStop(1, shade(base, k * 0.52));  // into the seat pan
+          ctx.fillStyle = g;
+          ctx.fillRect(x + pad, y + pad, seatW - pad * 2, rowH - pad * 2);
+        }
+        ao(ctx, 0, y, SIZE, px(5), 'down', 0.55);    // row behind shadows the one in front
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';     // step nosing catches the light
+        ctx.fillRect(0, y + rowH - px(2), SIZE, px(1));
+      }
+      for (let x = 0; x < SIZE; x += seatW) ao(ctx, x, 0, px(2.5), SIZE, 'right', 0.3);
+      speckle(ctx, dens(90), [0.5, 1.8], 0.05, false);
       break;
     }
     case 'DECOR_FRAME': {

@@ -51,10 +51,16 @@ function paintQuad(
 // vertical slice across all three and came out as meaningless black blocks.
 // Here the faces toward and away from traffic take that distance's band of the
 // texture, and the sides/top take a plain white column of it.
-function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: number, band: number): void {
+function numberBlock(m: MeshData, legs: MeshData, cx: number, cy: number, zGround: number,
+  heading: number, band: number): void {
   const HW = 0.75;   // half width across the track
   const HD = 0.22;   // half depth along it
   const H = 1.15;    // height
+  // A real brake board is mounted on legs with its face held clear of the
+  // ground. Sitting the box straight on the dirt was the single thing that
+  // made these read as crates rather than signage.
+  const LIFT = 0.62;
+  const z0 = zGround + LIFT;
   const WHITE: Vec3 = [1, 1, 1];
   const fx = Math.cos(heading), fy = Math.sin(heading);   // along travel
   const lx = -fy, ly = fx;                                // across travel
@@ -98,6 +104,11 @@ function numberBlock(m: MeshData, cx: number, cy: number, z0: number, heading: n
     m.uvs!.push([PLAIN[0], vTop]);
   }
   addQuadUp(m.vertices, m.faces, base, base + 1, base + 2, base + 3);
+  // the two legs it stands on
+  const LEG: Vec3 = [0.38, 0.40, 0.44];
+  for (const a of [-0.62, 0.62]) {
+    paintBox(legs, cx + lx * HW * a, cy + ly * HW * a, zGround, z0 + 0.05, 0.055, LEG);
+  }
 }
 
 // Axis-aligned box (poles, pillars): 4 sides + top, single colour, planar UVs.
@@ -314,6 +325,67 @@ function buildStand(
     paintQuad(frame, at(i, oBack), at(j, oBack), samples[i].pos[2], samples[i].pos[2] + STEPS * RISE,
       [0.55, 0.57, 0.62], [lx * sign, ly * sign, 0]);
   }
+
+  // --- ROOF, COLUMNS, RAILING ----------------------------------------------
+  // Without these a grandstand is a flight of steps. The roof is what gives it
+  // a silhouette against the sky, and the silhouette is the whole reason a
+  // stand reads as a building from the cockpit.
+  const zBase = samples[idx[0]].pos[2];
+  const oFront = off0;
+  const oRear = off0 + STEPS * DEPTH;
+  const zSeatTop = zBase + STEPS * RISE;
+  const zRoof = zSeatTop + 3.0;
+  const ROOF: Vec3 = [0.26, 0.28, 0.32];
+  const COL: Vec3 = [0.50, 0.52, 0.56];
+  const RAIL: Vec3 = [0.64, 0.66, 0.70];
+  const OVERHANG = 1.4;
+
+  const slab = (m: MeshData, i: number, j: number, oA: number, oB: number, z: number, col: Vec3) => {
+    const b = m.vertices.length;
+    const q1 = at(i, oA), q2 = at(i, oB), q3 = at(j, oA), q4 = at(j, oB);
+    m.vertices.push([q1[0], q1[1], z], [q2[0], q2[1], z], [q3[0], q3[1], z], [q4[0], q4[1], z]);
+    for (let k = 0; k < 4; k++) m.colors!.push(col);
+    const ui = samples[i].dist / BAND, uj = samples[j].dist / BAND;
+    m.uvs!.push([ui, 0], [ui, 1], [uj, 0], [uj, 1]);
+    addQuadUp(m.vertices, m.faces, b, b + 1, b + 3, b + 2);
+  };
+
+  for (let n = 0; n < idx.length - 1; n++) {
+    const i = idx[n], j = idx[n + 1];
+    const [lx, ly] = perpLeft(samples[i].heading);
+    const inward: Vec3 = [-lx * sign, -ly * sign, 0];
+    const outward: Vec3 = [lx * sign, ly * sign, 0];
+    slab(frame, i, j, oFront - OVERHANG, oRear + 0.6, zRoof, ROOF);           // roof deck
+    paintQuad(frame, at(i, oFront - OVERHANG), at(j, oFront - OVERHANG),       // front fascia
+      zRoof - 0.6, zRoof, ROOF, inward);
+    paintQuad(frame, at(i, oRear), at(j, oRear), zSeatTop, zRoof, [0.5, 0.52, 0.57], outward);
+    paintQuad(frame, at(i, oFront), at(j, oFront), zBase, zBase + 1.1, RAIL, inward); // front rail
+  }
+
+  // Columns: at the back of every bay, and a slimmer front row carrying the
+  // roof's leading edge.
+  const spanLen = samples[idx[idx.length - 1]].dist - samples[idx[0]].dist;
+  const bays = Math.max(2, Math.round(spanLen / 9));
+  for (let k = 0; k <= bays; k++) {
+    const t = k / bays;
+    const i = idx[Math.min(idx.length - 1, Math.round(t * (idx.length - 1)))];
+    const pBack = at(i, oRear + 0.3);
+    paintBox(frame, pBack[0], pBack[1], zBase, zRoof, 0.22, COL);
+    if (k % 2 === 0) {
+      const pFront = at(i, oFront - OVERHANG + 0.3);
+      paintBox(frame, pFront[0], pFront[1], zBase, zRoof - 0.6, 0.13, COL);
+    }
+  }
+
+  // End walls, so the stand is closed rather than a sliced-open staircase.
+  for (const endIdx of [idx[0], idx[idx.length - 1]]) {
+    const [lx, ly] = perpLeft(samples[endIdx].heading);
+    const dir: Vec3 = endIdx === idx[0]
+      ? [-Math.cos(samples[endIdx].heading), -Math.sin(samples[endIdx].heading), 0]
+      : [Math.cos(samples[endIdx].heading), Math.sin(samples[endIdx].heading), 0];
+    void lx; void ly;
+    paintQuad(frame, at(endIdx, oFront), at(endIdx, oRear), zBase, zSeatTop, [0.47, 0.49, 0.54], dir);
+  }
 }
 
 export function buildDecor(
@@ -480,7 +552,7 @@ export function buildDecor(
       const s = samples[i];
       const b = offsetPoint(s, (width / 2 + 2.0) * sign);
       const band = back === 100 ? 0 : back === 50 ? 1 : 2;
-      numberBlock(marker, b[0], b[1], b[2], s.heading, band);
+      numberBlock(marker, frame, b[0], b[1], b[2], s.heading, band);
     }
   }
 

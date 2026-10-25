@@ -372,6 +372,26 @@ export function buildTrack(project: TrackProject): BuiltTrack {
     esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.building, pitDeco.garage, pitDeco.sign, ...bldgs, ...propMeshes,
   ].filter((m) => m.faces.length > 0);
 
+  // RENDER STACK. Levelling every surface to the road plane fixed the steps you
+  // could see and feel, but it left grass, gravel, concrete and tarmac sharing
+  // EXACTLY the same plane wherever they overlap — 8,533 coplanar triangles at
+  // 0.0000 m on one test track — and two coplanar surfaces z-fight, which
+  // shimmers far worse than a step you cannot see.
+  //
+  // So each ground surface gets a fixed 3 mm rank below the road. The whole
+  // stack spans 18 mm: no wheel feels it, nothing reads as a step (the
+  // levelness tolerance is 20 mm), but no two layers ever share a plane and
+  // the more deliberate surface always wins the depth test.
+  const SURFACE_RANK: Record<string, number> = {
+    '1ROAD': 0, '1PIT': -0.003, '1TARMAC': -0.006,
+    '1CONCRETE': -0.009, '1SAND': -0.012, '1DIRT': -0.015, '1GRASS': -0.018,
+  };
+  for (const m of meshes) {
+    const dz = SURFACE_RANK[m.name];
+    if (!dz) continue;
+    for (const v of m.vertices) v[2] += dz;
+  }
+
   // Every mesh needs UVs for its texture; anything that didn't set its own
   // (road, aprons, walls…) gets planar world mapping — one tile per 6 m.
   const UV_TILE = 6;

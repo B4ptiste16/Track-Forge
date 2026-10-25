@@ -271,7 +271,7 @@ export function buildPitStructures(
   }
 
   // --- (3) painted pit-box lines on the lane --------------------------------
-  const LIFT = 0.007;
+  const LIFT = 0.014;
   const stripe = (i0: number, i1: number, offA: number, offB: number) => {
     const a0 = at(i0, offA), a1 = at(i0, offB), b0 = at(i1, offA), b1 = at(i1, offB);
     const b = lines.vertices.length;

@@ -4,7 +4,7 @@ import { addQuadUp } from './meshbuilder';
 
 const LINE_W = 0.2; // painted line width (m)
 const INSET = 0.12; // from the road edge to the line's outer side (m)
-const LIFT = 0.006; // above the road, below the kerbs (0.01)
+const LIFT = 0.014; // above the road, below the kerbs — clears the render stack
 
 // Continuous white edge lines on both sides of the road. Visual-only mesh
 // (no digit prefix), floats just above 1ROAD so the car physically drives on
