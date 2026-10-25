@@ -684,17 +684,72 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_PITBLDG': {
-      grain(ctx, 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; // fascia band
-      ctx.fillRect(0, 0, SIZE, 26);
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      for (let x = 0; x < SIZE; x += 64) ctx.fillRect(x, 0, 2, SIZE);
+      // The pit complex is mapped planar at one tile per 6 m, so this is ONE
+      // storey: a glazed team-viewing band over a clad lower wall, with the
+      // structural bay columns standing proud of both. It used to be flat grey
+      // with lines ruled down it, which is what a building looks like before
+      // anyone decides what it is made of.
+      const clad: RGB = [142, 139, 132];
+      vgrad(ctx, 0, SIZE, [
+        [0, shade(clad, 1.16)], [0.22, shade(clad, 1.02)],
+        [0.74, shade(clad, 0.92)], [1, shade(clad, 0.7)],
+      ]);
+      grain(ctx, 5);
+      // glazing band — the viewing gallery above the garages
+      const gy0 = SIZE * 0.1, gy1 = SIZE * 0.4;
+      vgrad(ctx, gy0, gy1, [
+        [0, '#53657a'], [0.45, '#7f9bb2'], [0.75, '#44586b'], [1, '#33424f'],
+      ]);
+      ao(ctx, 0, gy0, SIZE, px(8), 'down', 0.5);          // reveal above the glass
+      ao(ctx, 0, gy1 - px(8), SIZE, px(8), 'up', 0.45);    // sill shadow
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';             // sill
+      ctx.fillRect(0, gy1, SIZE, px(3));
+      for (let x = px(14); x < SIZE; x += px(28)) {        // window mullions
+        ctx.fillStyle = 'rgba(28,32,38,0.75)';
+        ctx.fillRect(x, gy0, px(3), gy1 - gy0);
+      }
+      for (let x = 0; x < SIZE; x += px(21)) {             // glass reflections
+        const g = ctx.createLinearGradient(x, gy0, x + px(21), gy1);
+        g.addColorStop(0, 'rgba(255,255,255,0.14)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+        g.addColorStop(1, 'rgba(255,255,255,0.1)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x, gy0, px(21), gy1 - gy0);
+      }
+      // structural columns between the bays, standing proud of the cladding
+      for (let x = 0; x < SIZE; x += px(64)) {
+        ctx.fillStyle = shade(clad, 1.1);
+        ctx.fillRect(x, 0, px(13), SIZE);
+        ao(ctx, x + px(13), 0, px(9), SIZE, 'right', 0.45);
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x, 0, px(2), SIZE);
+      }
+      ctx.fillStyle = 'rgba(248,249,250,0.9)';             // fascia at the roofline
+      ctx.fillRect(0, 0, SIZE, px(13));
+      ao(ctx, 0, px(13), SIZE, px(10), 'down', 0.4);
+      for (let x = 0; x < SIZE; x += px(21)) {             // cladding panel joints
+        ctx.fillStyle = 'rgba(0,0,0,0.14)';
+        ctx.fillRect(x, gy1 + px(4), px(1.5), SIZE - gy1);
+      }
+      streaks(ctx, dens(20), gy1, SIZE * 0.5, 0.1);        // rain off the sill
+      groundGrime(ctx, 0.14, 0.4);
       break;
     }
     case 'DECOR_GARAGE': {
-      grain(ctx, 5);
-      ctx.fillStyle = 'rgba(255,255,255,0.10)'; // roller-door ribs
-      for (let y = 6; y < SIZE; y += 18) ctx.fillRect(0, y, SIZE, 4);
+      // A roller shutter: horizontal slats, each a shallow cylinder. Flat ribs
+      // at 10% white read as a drawn-on grille rather than a rolled door.
+      const slat: RGB = [58, 61, 68];
+      const h = px(13);
+      for (let y = 0; y < SIZE; y += h) {
+        cylBar(ctx, y, h, slat);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';   // the gap the slats hinge on
+        ctx.fillRect(0, y + h - px(1.5), SIZE, px(1.5));
+      }
+      grain(ctx, 4);
+      speckle(ctx, dens(120), [0.4, 1.4], 0.05, true);
+      ao(ctx, 0, 0, SIZE, px(14), 'down', 0.55);           // dark under the lintel
+      groundGrime(ctx, 0.12, 0.6);
+      rubberScuff(ctx, dens(8), SIZE * 0.78, SIZE * 0.2);
       break;
     }
     case 'DECOR_BOLLARD': {

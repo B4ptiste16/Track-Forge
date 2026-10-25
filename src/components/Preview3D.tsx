@@ -287,20 +287,28 @@ export function Preview3D({ project, built }: { project: TrackProject; built: Bu
     for (const mesh of built.meshes) {
       if (mesh.faces.length === 0) continue;
       const side = mesh.name === '1WALL' || mesh.name.startsWith('DECOR') ? THREE.DoubleSide : THREE.FrontSide;
-      const vc = !!mesh.colors && mesh.colors.length === mesh.vertices.length;
+      // PARITY WITH THE EXPORT. The FBX carries no vertex-colour layer at all —
+      // mesh.colors is computed, carried through the mesh splitter and then
+      // dropped — so the game never sees it. Showing it here made the preview a
+      // picture of something the exporter cannot produce. The game's material
+      // is a texture plus a flat diffuse, and nothing else, so that is exactly
+      // what gets built here.
+      const base = mesh.name.replace(/_\d+$/, '');
       const baseColor =
-        mesh.name === '1WALL'
+        base === '1WALL'
           ? (WALL_STYLE_COLORS[project.walls.style] ?? pal.wall)
-          : meshColor(mesh.name, pal);
-      const map = texCacheRef.current.get(mesh.name.replace(/_\d+$/, '')) ?? null;
+          : meshColor(base, pal);
+      const map = texCacheRef.current.get(base) ?? null;
       // Grass cards are cut-outs: without alpha testing they show as solid
       // rectangles here exactly as they would in game.
       const cutout = mesh.name.startsWith('DECOR_GRASSTUFT');
       const mat = new THREE.MeshStandardMaterial({
-        // A texture already carries the colour; tinting it again just muddies it.
-        color: map ? '#ffffff' : (vc ? '#ffffff' : baseColor),
+        // A texture already carries the colour; tinting it again just muddies
+        // it — which is precisely what the FBX used to do, and why the game
+        // looked darker than this preview.
+        color: map ? '#ffffff' : baseColor,
         map,
-        vertexColors: vc && !map,
+        vertexColors: false,
         transparent: cutout,
         alphaTest: cutout ? 0.35 : 0,
         roughness: 0.95,

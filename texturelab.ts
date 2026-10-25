@@ -19,6 +19,6 @@ const show = (label: string, url: string) => {
 for (const style of ['solid', 'armco', 'tecpro', 'blocks', 'hay'] as WallStyle[]) {
   show(`1WALL / ${style}`, drawTexture('1WALL', meshColor('1WALL', pal), 'tarmac_day', style));
 }
-for (const name of ['DECOR_STAND', 'DECOR_MARKER', '1ROAD', '1KERB', '1GRASS', '1SAND', 'DECOR_PITBLDG', 'DECOR_GARAGE']) {
+for (const name of ['DECOR_PITBLDG', 'DECOR_GARAGE', 'DECOR_STAND', 'DECOR_MARKER', '1ROAD', '1KERB', '1GRASS', '1SAND']) {
   show(name, drawTexture(name, meshColor(name, pal), 'tarmac_day', 'solid'));
 }

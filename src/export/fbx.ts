@@ -307,7 +307,15 @@ export function genFbx(project: TrackProject, built: BuiltTrack): string {
     L(2, 'Culling: "CullingOff"');
     L(1, '}');
 
-    const [r, g, b] = hexRgb(meshColor(baseSurfaceName(mn.mesh.name), pal));
+    // WHITE, not the surface colour. drawTexture() fills its canvas with that
+    // colour before it draws anything, so the texture already carries it;
+    // writing it again here meant the game rendered texture x colour and every
+    // surface came out markedly darker than the app's preview showed. The
+    // preview was the one telling the truth. Keep a real colour only for a
+    // mesh with no texture to carry it.
+    const [r, g, b] = mn.texId
+      ? [1, 1, 1]
+      : hexRgb(meshColor(baseSurfaceName(mn.mesh.name), pal));
     L(1, `Material: ${mn.matId}, "Material::mat_${mn.mesh.name}", "" {`);
     L(2, 'Version: 102');
     L(2, 'ShadingModel: "lambert"');
