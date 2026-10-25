@@ -53,7 +53,9 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_POLE') return '#9ea3aa';
   if (name === 'DECOR_FLAG') return '#0055A4';
   if (name === 'DECOR_STAND') return '#5f646b';
-  if (name === 'DECOR_FRAME') return '#7c8087';
+  if (name === 'DECOR_FRAME') return '#96958f'; // precast concrete
+  if (name === 'DECOR_STEEL') return '#767c86'; // painted structural steel
+  if (name === 'DECOR_RAIL') return '#9a9994';  // grandstand parapet
   if (name === 'DECOR_ARCH') return '#f2f2f2';
   if (name === 'DECOR_MARKER') return '#f2f2f2';
   if (name === 'DECOR_PITSIGN') return '#f4f4f2';

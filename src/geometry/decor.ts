@@ -44,6 +44,11 @@ export const TREE_ATLAS = {
 };
 type Region = readonly [number, number, number, number];
 
+// Start-light panel: real width/height, and the aspect the texture draws for.
+export const LIGHTS_W = 5.4;
+export const LIGHTS_H = 0.9;
+export const LIGHTS_ASPECT = LIGHTS_W / LIGHTS_H;
+
 // Send the UVs added since `from` into an atlas region. With `normalise` they
 // are first scaled to their own bounding box (for planar caps); otherwise they
 // are taken as already being in 0..1. Inset slightly so mip-mapping never
@@ -73,15 +78,20 @@ function toRegion(m: MeshData, from: number, r: Region, normalise = false, flipU
 // `uspan` maps the texture across it horizontally (default planar-ish).
 function paintQuad(
   m: MeshData, a: Vec3, b: Vec3, z0: number, z1: number, col: Vec3, dir: Vec3,
-  uspan?: [number, number],
+  uspan?: [number, number], vspan?: [number, number],
 ): void {
   const base = m.vertices.length;
   m.vertices.push([a[0], a[1], z0], [a[0], a[1], z1], [b[0], b[1], z0], [b[0], b[1], z1]);
   for (let k = 0; k < 4; k++) m.colors!.push(col);
+  // The default U, (x+y)/4, is fine for paintBox's axis-aligned sides but is
+  // CONSTANT along any edge running in the (1,-1) direction, smearing a single
+  // column of texels down the whole face. Arbitrary-direction faces should pass
+  // uspan (and vspan, to anchor the texture to world height).
   const u0 = uspan ? uspan[0] : (a[0] + a[1]) / 4;
   const u1 = uspan ? uspan[1] : (b[0] + b[1]) / 4;
-  const v1 = uspan ? 1 : (z1 - z0) / 4;
-  m.uvs!.push([u0, 0], [u0, v1], [u1, 0], [u1, v1]);
+  const v0 = vspan ? vspan[0] : 0;
+  const v1 = vspan ? vspan[1] : uspan ? 1 : (z1 - z0) / 4;
+  m.uvs!.push([u0, v0], [u0, v1], [u1, v0], [u1, v1]);
   addQuadToward(m.vertices, m.faces, base, base + 1, base + 3, base + 2, dir);
 }
 
@@ -345,6 +355,8 @@ function buildStand(
   seat: MeshData,
   frame: MeshData,
   roof: MeshData,
+  steel: MeshData,
+  rail: MeshData,
   samples: CenterlineSample[],
   idx: number[],
   side: 'left' | 'right',
@@ -358,12 +370,35 @@ function buildStand(
   const sign = side === 'left' ? 1 : -1;
   const at = (i: number, off: number): Vec3 => offsetPoint(samples[i], off * sign);
   const colAt = (i: number): Vec3 => seats[Math.floor(samples[i].dist / 6) % seats.length];
+  // U runs on distance ALONG THE STAND AT THE FACE'S OWN OFFSET. Not lap
+  // distance - a stand straddling start/finish would see that jump from the
+  // full lap back to 0 - and not the centreline either: a stand wrapped round
+  // the outside of a tight corner 25-38 m out has an arc ~4x the centreline's,
+  // and measuring along the centreline stretched its texture 4x along.
+  const alongCache = new Map<number, Map<number, number>>();
+  const alongAt = (off: number): Map<number, number> => {
+    let m = alongCache.get(off);
+    if (m) return m;
+    m = new Map([[idx[0], 0]]);
+    for (let n = 1; n < idx.length; n++) {
+      const a = at(idx[n - 1], off), b = at(idx[n], off);
+      m.set(idx[n], m.get(idx[n - 1])! + Math.hypot(b[0] - a[0], b[1] - a[1]));
+    }
+    alongCache.set(off, m);
+    return m;
+  };
+  const U = (i: number, per: number, off: number) => alongAt(off).get(i)! / per;
+  // The seats are the exception. Their colour blocks must stay radial from
+  // row to row, so every row shares ONE arc - the middle row's. That is exact
+  // in the middle and within ~20% at the front and back rows, where measuring
+  // along the centreline was out by ~4x.
+  const seatOff = off0 + (STEPS * DEPTH) / 2;
 
   for (let n = 0; n < idx.length - 1; n++) {
     const i = idx[n], j = idx[n + 1];
     const col = colAt(i);
-    const ui = samples[i].dist / BAND;
-    const uj = samples[j].dist / BAND;
+    const ui = U(i, BAND, seatOff);
+    const uj = U(j, BAND, seatOff);
     const [lx, ly] = perpLeft(samples[i].heading);
     const inward: Vec3 = [-lx * sign, -ly * sign, 0]; // toward the track
     for (let k = 0; k < STEPS; k++) {
@@ -371,8 +406,9 @@ function buildStand(
       const oOut = off0 + (k + 1) * DEPTH;
       const zLo = samples[i].pos[2] + k * RISE;
       const zHi = zLo + RISE;
-      // riser (vertical, faces the track) — grey frame
-      paintQuad(frame, at(i, oIn), at(j, oIn), zLo, zHi, [0.42, 0.44, 0.48], inward);
+      // riser (vertical, faces the track) — cast concrete
+      paintQuad(frame, at(i, oIn), at(j, oIn), zLo, zHi, [0.42, 0.44, 0.48], inward,
+        [U(i, 4, oIn), U(j, 4, oIn)], [zLo / 4, zHi / 4]);
       // tread (seats) — coloured band, texture runs along the stand
       const b = seat.vertices.length;
       const pIn1 = at(i, oIn), pIn2 = at(j, oIn), pOut1 = at(i, oOut), pOut2 = at(j, oOut);
@@ -386,8 +422,9 @@ function buildStand(
     }
     // back wall — grey frame
     const oBack = off0 + STEPS * DEPTH;
-    paintQuad(frame, at(i, oBack), at(j, oBack), samples[i].pos[2], samples[i].pos[2] + STEPS * RISE,
-      [0.55, 0.57, 0.62], [lx * sign, ly * sign, 0]);
+    const zb0 = samples[i].pos[2], zb1 = zb0 + STEPS * RISE;
+    paintQuad(frame, at(i, oBack), at(j, oBack), zb0, zb1,
+      [0.55, 0.57, 0.62], [lx * sign, ly * sign, 0], [U(i, 4, oBack), U(j, 4, oBack)], [zb0 / 4, zb1 / 4]);
   }
 
   // --- ROOF, COLUMNS, RAILING ----------------------------------------------
@@ -424,10 +461,16 @@ function buildStand(
     // own material, because the darker tone it was given here was a vertex
     // colour, and those never reach the game.
     slab(roof, i, j, oFront - OVERHANG, oRear + 0.6, zRoof, ROOF);
-    paintQuad(frame, at(i, oFront - OVERHANG), at(j, oFront - OVERHANG),       // front fascia
-      zRoof - 0.6, zRoof, ROOF, inward);
-    paintQuad(frame, at(i, oRear), at(j, oRear), zSeatTop, zRoof, [0.5, 0.52, 0.57], outward);
-    paintQuad(frame, at(i, oFront), at(j, oFront), zBase, zBase + 1.1, RAIL, inward); // front rail
+    // fascia: the roof's own edge, so it takes the roofing at the roof's scale
+    paintQuad(roof, at(i, oFront - OVERHANG), at(j, oFront - OVERHANG),
+      zRoof - 0.6, zRoof, ROOF, inward, [U(i, 6, oFront - OVERHANG), U(j, 6, oFront - OVERHANG)],
+      [(zRoof - 0.6) / 6, zRoof / 6]);
+    paintQuad(frame, at(i, oRear), at(j, oRear), zSeatTop, zRoof, [0.5, 0.52, 0.57], outward,
+      [U(i, 4, oRear), U(j, 4, oRear)], [zSeatTop / 4, zRoof / 4]);
+    // front parapet: one texture tile per 2 m along, and the FULL texture up
+    // its 1.1 m. It does not repeat vertically, so it can have a top and a foot.
+    paintQuad(rail, at(i, oFront), at(j, oFront), zBase, zBase + 1.1, RAIL, inward,
+      [U(i, 2, oFront), U(j, 2, oFront)], [0, 1]);
   }
 
   // Columns: at the back of every bay, and a slimmer front row carrying the
@@ -438,10 +481,10 @@ function buildStand(
     const t = k / bays;
     const i = idx[Math.min(idx.length - 1, Math.round(t * (idx.length - 1)))];
     const pBack = at(i, oRear + 0.3);
-    paintBox(frame, pBack[0], pBack[1], zBase, zRoof, 0.22, COL);
+    paintBox(steel, pBack[0], pBack[1], zBase, zRoof, 0.22, COL);
     if (k % 2 === 0) {
       const pFront = at(i, oFront - OVERHANG + 0.3);
-      paintBox(frame, pFront[0], pFront[1], zBase, zRoof - 0.6, 0.13, COL);
+      paintBox(steel, pFront[0], pFront[1], zBase, zRoof - 0.6, 0.13, COL);
     }
   }
 
@@ -452,7 +495,8 @@ function buildStand(
       ? [-Math.cos(samples[endIdx].heading), -Math.sin(samples[endIdx].heading), 0]
       : [Math.cos(samples[endIdx].heading), Math.sin(samples[endIdx].heading), 0];
     void lx; void ly;
-    paintQuad(frame, at(endIdx, oFront), at(endIdx, oRear), zBase, zSeatTop, [0.47, 0.49, 0.54], dir);
+    paintQuad(frame, at(endIdx, oFront), at(endIdx, oRear), zBase, zSeatTop, [0.47, 0.49, 0.54], dir,
+      [oFront / 4, oRear / 4], [zBase / 4, zSeatTop / 4]);
   }
 }
 
@@ -471,6 +515,11 @@ export function buildDecor(
   const stand = mesh('DECOR_STAND');
   const frame = mesh('DECOR_FRAME');
   const standRoof = mesh('DECOR_STANDROOF');
+  // The grandstand structure carried EIGHT different greys as vertex colours,
+  // all of which collapse to one tone in game. Split by what each part is
+  // made of instead, so each gets its own material and texture.
+  const steel = mesh('DECOR_STEEL'); // columns, brake-board legs
+  const rail = mesh('DECOR_RAIL');   // grandstand front parapet
   const arch = mesh('DECOR_ARCH');
 
   const idxOfSpan = (span: SegmentSpan): number[] => {
@@ -552,7 +601,7 @@ export function buildDecor(
         const mid = sub[Math.floor(sub.length / 2)];
         const off = clearOff(mid, side);
         if (standAreaClear(sub, side, off)) {
-          buildStand(stand, frame, standRoof, samples, sub, side, off, seats);
+          buildStand(stand, frame, standRoof, steel, rail, samples, sub, side, off, seats);
           standZones.push({ side, from: samples[sub[0]].dist, to: samples[sub[sub.length - 1]].dist });
         }
       }
@@ -565,7 +614,7 @@ export function buildDecor(
       const mid = idx[Math.floor(idx.length / 2)];
       const off = clearOff(mid, outside) + 9;
       if (standAreaClear(idx, outside, off)) {
-        buildStand(stand, frame, standRoof, samples, idx, outside, off, seats);
+        buildStand(stand, frame, standRoof, steel, rail, samples, idx, outside, off, seats);
         standZones.push({ side: outside, from: samples[idx[0]].dist, to: samples[idx[idx.length - 1]].dist });
       }
     }
@@ -591,8 +640,23 @@ export function buildDecor(
       const t0 = b3 / 3, t1b = (b3 + 1) / 3;
       const a: Vec3 = [pl[0] + (pr[0] - pl[0]) * t0, pl[1] + (pr[1] - pl[1]) * t0, 0];
       const b: Vec3 = [pl[0] + (pr[0] - pl[0]) * t1b, pl[1] + (pr[1] - pl[1]) * t1b, 0];
-      paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[b3], fwd, [t0, t1b]);
-      paintQuad(arch, a, b, zTop - BANNER, zTop, TRICOLORE[2 - b3], [-fwd[0], -fwd[1], 0], [1 - t0, 1 - t1b]);
+      // The two faces used to sit on the SAME plane facing opposite ways - and
+      // with culling off in the FBX they drew in one place and z-fought, just
+      // as the gantry beam did. Pushed apart to give the banner depth.
+      const D = 0.24;
+      const sh = (p: Vec3, d: number): Vec3 => [p[0] + fwd[0] * d, p[1] + fwd[1] * d, 0];
+      paintQuad(arch, sh(a, D / 2), sh(b, D / 2), zTop - BANNER, zTop, TRICOLORE[b3], fwd, [t0, t1b]);
+      paintQuad(arch, sh(a, -D / 2), sh(b, -D / 2), zTop - BANNER, zTop, TRICOLORE[2 - b3],
+        [-fwd[0], -fwd[1], 0], [1 - t0, 1 - t1b]);
+      // top and underside, so it reads as a solid banner from any angle
+      for (const [z, up] of [[zTop, 1], [zTop - BANNER, -1]] as [number, number][]) {
+        const q = [sh(a, -D / 2), sh(a, D / 2), sh(b, -D / 2), sh(b, D / 2)];
+        const base = arch.vertices.length;
+        for (const v of q) arch.vertices.push([v[0], v[1], z]);
+        for (let k = 0; k < 4; k++) arch.colors!.push(TRICOLORE[b3]);
+        arch.uvs!.push([t0, 0.02], [t0, 0.98], [t1b, 0.02], [t1b, 0.98]);
+        addQuadToward(arch.vertices, arch.faces, base, base + 1, base + 3, base + 2, [0, 0, up]);
+      }
     }
   }
 
@@ -621,7 +685,7 @@ export function buildDecor(
       const s = samples[i];
       const b = offsetPoint(s, (width / 2 + 2.0) * sign);
       const band = back === 100 ? 0 : back === 50 ? 1 : 2;
-      numberBlock(marker, frame, b[0], b[1], b[2], s.heading, band);
+      numberBlock(marker, steel, b[0], b[1], b[2], s.heading, band);
     }
   }
 
@@ -664,8 +728,16 @@ export function buildDecor(
     face(lf, lb, rf, rb, zLo, zLo, zLo, zLo, BEAM_D, [0, 0, -1]);
     // light panel hanging under the beam, flush with its front face, facing
     // the grid (normal = -travel)
-    const lz1 = zLo, lz0 = lz1 - 0.9;
-    paintQuad(lights, [lf[0], lf[1], 0], [rf[0], rf[1], 0], lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
+    // The panel used to span the whole beam - ~16 m wide by 0.9 m tall, with a
+    // square texture stretched over it, so every round lamp was drawn ~18x wider
+    // than tall. It is now a light panel's width, centred, and the texture is
+    // drawn for exactly this aspect (LIGHTS_ASPECT).
+    const lz1 = zLo, lz0 = lz1 - LIGHTS_H;
+    const ax = (rf[0] - lf[0]) / span, ay = (rf[1] - lf[1]) / span;
+    const mx = (lf[0] + rf[0]) / 2, my = (lf[1] + rf[1]) / 2;
+    const L0: Vec3 = [mx - ax * LIGHTS_W / 2, my - ay * LIGHTS_W / 2, 0];
+    const L1: Vec3 = [mx + ax * LIGHTS_W / 2, my + ay * LIGHTS_W / 2, 0];
+    paintQuad(lights, L0, L1, lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
   }
 
   // Treeline outside the barriers (density from the circuit preset).
@@ -680,7 +752,7 @@ export function buildDecor(
     ? buildLightMasts(mastPole, mastLamp, samples, width, resolved, project.decor!.lightSpacing!)
     : [];
 
-  const meshes = [pole, flag, stand, frame, standRoof, arch, marker, gantry, lights, tree, mastPole, mastLamp]
+  const meshes = [pole, flag, stand, frame, standRoof, steel, rail, arch, marker, gantry, lights, tree, mastPole, mastLamp]
     .filter((m) => m.faces.length > 0);
   return { meshes, masts };
 }

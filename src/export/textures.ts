@@ -3,7 +3,7 @@ import type { Theme, WallStyle } from '../types';
 import { meshColor, type Palette } from '../state/project';
 import { ADVERT_ASPECT } from '../geometry/runoff';
 import { KERB_PATTERNS } from '../geometry/kerbs';
-import { SEAT_PATTERNS, TREE_ATLAS } from '../geometry/decor';
+import { SEAT_PATTERNS, TREE_ATLAS, LIGHTS_ASPECT } from '../geometry/decor';
 
 export interface TexFile {
   path: string; // e.g. texture/road.png (the subfolder KsEditor searches)
@@ -233,6 +233,40 @@ function rubberScuff(ctx: CanvasRenderingContext2D, count: number, yc: number, s
   }
 }
 
+// Tyre marks on 6-m-per-tile planar ground (85 px/m). Each car leaves two
+// marks ~1.5 m apart, each ~0.25 m wide with a soft edge, fading in and out
+// along a ~6 m arc. The arc is anchored on a point INSIDE the tile: at a real
+// 9-23 m radius its centre lies far outside, and a random sweep about that
+// centre mostly missed the tile, so the marks often never appeared. Drawn at
+// all nine tile offsets so it tiles; wrap() only shifts one tile, for small
+// features centred in the tile.
+function tyreMarks(ctx: CanvasRenderingContext2D, cars: number, alpha: number): void {
+  const M = SIZE / 6;
+  for (let i = 0; i < cars; i++) {
+    const ax = Math.random() * SIZE, ay = Math.random() * SIZE;
+    const r = M * (9 + Math.random() * 14);
+    const th = Math.random() * Math.PI * 2;
+    const cx = ax - Math.cos(th) * r, cy = ay - Math.sin(th) * r;
+    const half = (M * 3) / r;
+    const SEG = 14;
+    for (const off of [0, M * 1.5]) {
+      for (const [w, a] of [[M * 0.3, alpha * 0.45], [M * 0.18, alpha]] as [number, number][]) {
+        ctx.lineWidth = w;
+        for (let k = 0; k < SEG; k++) {
+          const t0 = th - half + (2 * half * k) / SEG, t1 = t0 + (2 * half) / SEG;
+          const fade = Math.sin(((k + 0.5) / SEG) * Math.PI);  // in and out
+          ctx.strokeStyle = `rgba(16,15,15,${(a * fade).toFixed(3)})`;
+          for (let dx = -SIZE; dx <= SIZE; dx += SIZE) {
+            for (let dy = -SIZE; dy <= SIZE; dy += SIZE) {
+              ctx.beginPath(); ctx.arc(cx + dx, cy + dy, r + off, t0, t1); ctx.stroke();
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 export function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
@@ -412,31 +446,93 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       // indistinguishable from a seam, which is precisely what it looked like.
       // Cast concrete run-off is continuous anyway; its character comes from the
       // blotches and cracks above, all of which wrap.
-      break;
-    }
-    case '1TARMAC': { // paved run-off: like the road but lighter, patch seams
-      grain(ctx, 11);
-      speckle(ctx, dens(800), [px(0.4), px(1.1)], 0.14, true);
-      speckle(ctx, dens(450), [px(0.4), px(1.0)], 0.16, false);
-      ctx.fillStyle = 'rgba(0,0,0,0.10)'; // repave patch seams
-      ctx.fillRect(0, px(90), SIZE, px(4));
-      ctx.fillRect(px(150), 0, px(4), SIZE);
-      break;
-    }
-    case '1DIRT': { // packed earth
-      grain(ctx, 12);
-      const [r, g, b] = hexRgb(hex);
-      for (let i = 0; i < dens(900); i++) { // dry clods + small stones
-        const d = -30 + Math.random() * 55;
-        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        const pr = px(0.6 + Math.random() * 1.8);
-        ctx.beginPath();
-        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, pr, 0, Math.PI * 2);
-        ctx.fill();
+      // Saw-cut expansion joints every 3 m (one tile is 6 m), and tyre marks
+      // left by cars using the run-off - both wrapped so they cross tile edges.
+      for (const t of [0, SIZE / 2]) {
+        ctx.fillStyle = 'rgba(0,0,0,0.34)';
+        ctx.fillRect(t, 0, px(1.6), SIZE);
+        ctx.fillRect(0, t, SIZE, px(1.6));
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(t + px(1.6), 0, px(0.8), SIZE);
+        ctx.fillRect(0, t + px(1.6), SIZE, px(0.8));
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.10)'; // faint wheel ruts
-      ctx.fillRect(0, px(70), SIZE, px(8));
-      ctx.fillRect(0, px(180), SIZE, px(8));
+      tyreMarks(ctx, 2, 0.14);
+      break;
+    }
+    case '1TARMAC': {
+      // Paved run-off: the same construction as the racing surface - stones in
+      // binder, each with a lit cap and a shadow - but older and more open,
+      // so it reads as a different, rougher surface. Planar, 6 m per tile;
+      // nothing distinctive enough to show the tiling on a big apron.
+      const [rr, gg, bb] = hexRgb(hex);
+      grain(ctx, 10);
+      for (let i = 0; i < dens(1100); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const r = px(0.4) + Math.random() * px(1.7);
+        ctx.fillStyle = `rgba(0,0,0,${0.12 + Math.random() * 0.18})`;
+        ctx.fillRect(x + r * 0.45, y + r * 0.5, r * 1.4, r * 1.25);
+        const d = -20 + Math.random() * 58;
+        ctx.fillStyle = `rgba(${rr + d},${gg + d},${bb + d},${0.4 + Math.random() * 0.45})`;
+        ctx.fillRect(x, y, r * 1.4, r * 1.25);
+      }
+      speckle(ctx, dens(520), [px(0.3), px(0.9)], 0.16, false); // open texture, weathered
+      for (let i = 0; i < dens(6); i++) {                       // patchy fading
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, rad = px(40 + Math.random() * 70);
+        const d = -4 + Math.random() * 14;
+        wrap(x, y, rad, (wx, wy) => {
+          const g = ctx.createRadialGradient(wx, wy, 1, wx, wy, rad);
+          g.addColorStop(0, `rgba(${rr + d},${gg + d},${bb + d},0.16)`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(wx, wy, rad, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      tyreMarks(ctx, 2, 0.16);                                 // cars running wide
+      break;
+    }
+    case '1DIRT': {
+      // Packed earth. The ruts used to be two hard-edged bars ruled straight
+      // across the tile, which read as stripes on a 6 m grid. Now: damp and
+      // dry patches, shaded pebbles, dust, and a net of dry cracks.
+      const base = hexRgb(hex) as RGB;
+      grain(ctx, 10);
+      for (let i = 0; i < dens(8); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(30 + Math.random() * 60);
+        const k = 0.78 + Math.random() * 0.32;
+        wrap(x, y, r, (wx, wy) => {
+          const g = ctx.createRadialGradient(wx, wy, 1, wx, wy, r);
+          g.addColorStop(0, shade(base, k, 0.4));
+          g.addColorStop(1, shade(base, k, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      for (let i = 0; i < dens(70); i++) {                  // dry cracks
+        let x = Math.random() * SIZE, y = Math.random() * SIZE;
+        ctx.strokeStyle = `rgba(40,28,18,${0.18 + Math.random() * 0.2})`;
+        ctx.lineWidth = px(0.6);
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let k = 0; k < 4; k++) {
+          x += (Math.random() - 0.5) * px(14); y += (Math.random() - 0.5) * px(14);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // Stones: sparse and irregular, mostly half-buried, a few sizes. Nine
+      // hundred near-identical round pebbles read as beads on a tray.
+      for (let i = 0; i < dens(70); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const r = px(0.5) + Math.pow(Math.random(), 2.2) * px(3.2);   // mostly small
+        const e = 0.45 + Math.random() * 0.5, rot = Math.random() * Math.PI;
+        ctx.fillStyle = 'rgba(28,20,12,0.32)';
+        ctx.beginPath(); ctx.ellipse(x + r * 0.3, y + r * 0.35, r, r * e, rot, 0, Math.PI * 2); ctx.fill();
+        const k = 0.88 + Math.random() * 0.36;
+        ctx.fillStyle = Math.random() < 0.3 ? shade([150, 144, 132], k) : shade(base, k);
+        ctx.beginPath(); ctx.ellipse(x, y, r, r * e, rot, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,240,220,0.14)';
+        ctx.beginPath(); ctx.ellipse(x - r * 0.25, y - r * 0.25, r * 0.4, r * e * 0.35, rot, 0, Math.PI * 2); ctx.fill();
+      }
+      speckle(ctx, dens(400), [px(0.3), px(0.8)], 0.12, true); // dust
       break;
     }
     case '1KERB': {
@@ -621,17 +717,52 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       }
       break;
     }
-    case '1WALLPOLY': { // yellow polystyrene escape-road blocks
-      grain(ctx, 8);
-      ctx.fillStyle = 'rgba(0,0,0,0.20)'; // block joints
-      for (let x = 0; x < SIZE; x += 56) ctx.fillRect(x, 0, 3, SIZE);
-      ctx.fillStyle = 'rgba(255,255,255,0.25)';
-      ctx.fillRect(0, 0, SIZE, 10);
+    case '1WALLPOLY': {
+      // Polystyrene blocks. emitBox gives each of a block's four faces one
+      // QUARTER of U and the full V (foot to top, once - no tiling), so this is
+      // drawn as four faces side by side, each with moulded edges, a groove,
+      // tyre scuffs and dirt at the foot.
+      const yel: RGB = [232, 206, 66];
+      vgrad(ctx, 0, SIZE, [[0, shade(yel, 1.08)], [0.7, shade(yel, 0.96)], [1, shade(yel, 0.8)]]);
+      grain(ctx, 5);
+      for (let x = 0; x < SIZE; x++) {                      // rounded edges, per face
+        const ph = ((x / SIZE) * 4) % 1;
+        const k = Math.sin(ph * Math.PI);
+        ctx.fillStyle = `rgba(0,0,0,${(0.32 * (1 - k)).toFixed(3)})`;
+        ctx.fillRect(x, 0, 1, SIZE);
+      }
+      const gy = SIZE * 0.5;                                // moulded groove
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.fillRect(0, gy, SIZE, px(3));
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(0, gy + px(3), SIZE, px(1.5));
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';             // top edge catches the sky
+      ctx.fillRect(0, 0, SIZE, px(4));
+      rubberScuff(ctx, dens(24), SIZE * 0.66, SIZE * 0.4);
+      groundGrime(ctx, 0.22, 0.55);
       break;
     }
     case 'ROAD_LINE':
     case 'PIT_LINE': {
-      grain(ctx, 5);
+      // Worn line paint. Paint sits on the asphalt, so the tops of the stones
+      // break through it as it wears, and rubber gets laid over the top.
+      grain(ctx, 4);
+      for (let i = 0; i < dens(700); i++) {                 // stones through the paint
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(0.3) + Math.random() * px(1.1);
+        ctx.fillStyle = `rgba(60,62,66,${0.12 + Math.random() * 0.3})`;
+        ctx.fillRect(x, y, r * 1.4, r * 1.2);
+      }
+      for (let i = 0; i < dens(5); i++) {                   // worn-through patches
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(14 + Math.random() * 30);
+        wrap(x, y, r, (wx, wy) => {
+          const g = ctx.createRadialGradient(wx, wy, 1, wx, wy, r);
+          g.addColorStop(0, 'rgba(96,98,102,0.18)');
+          g.addColorStop(1, 'rgba(96,98,102,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      speckle(ctx, dens(120), [px(0.6), px(2)], 0.12, false); // rubber
       break;
     }
     // BUILDING FACADES. Building walls are UV'd at ONE TILE PER 4 m on both
@@ -951,18 +1082,49 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_FLAG': {
+      // A flag flying from a pole folds in ripples PARALLEL to the pole, so the
+      // light and shadow vary along its length (U). The old shading varied
+      // with height, which is how a flag hanging limp would look.
       bandsAcross(ctx, TRICOLORE);
-      // soft horizontal waves so it reads as cloth
-      for (let y = 0; y < SIZE; y++) {
-        const s = Math.sin(y / 9) * 0.5 + Math.sin(y / 23) * 0.5;
-        ctx.fillStyle = s > 0 ? `rgba(255,255,255,${0.10 * s})` : `rgba(0,0,0,${-0.12 * s})`;
-        ctx.fillRect(0, y, SIZE, 1);
+      for (let x = 0; x < SIZE; x++) {
+        const t = x / SIZE;
+        const s = Math.sin(t * 26 + Math.sin(t * 7) * 1.6) * (0.4 + 0.6 * t); // more flutter at the fly end
+        ctx.fillStyle = s > 0 ? `rgba(255,255,255,${(0.16 * s).toFixed(3)})` : `rgba(0,0,0,${(-0.24 * s).toFixed(3)})`;
+        ctx.fillRect(x, 0, 1, SIZE);
       }
+      ctx.fillStyle = '#e6e6e2';                            // hoist sleeve at the pole
+      ctx.fillRect(0, 0, px(6), SIZE);
+      ao(ctx, px(6), 0, px(5), SIZE, 'right', 0.3);
+      grain(ctx, 3);
       break;
     }
     case 'DECOR_ARCH': {
+      // Printed banner fabric: hems top and bottom with eyelets, and the
+      // shallow vertical sag folds of a banner stretched between two posts.
       bandsAcross(ctx, TRICOLORE);
-      grain(ctx, 4);
+      // U spans the whole ~16 m banner, so 64 folds was one every 25 cm and
+      // read as corrugated pinstripe. A stretched banner sags in a handful of
+      // soft, uneven folds.
+      for (let x = 0; x < SIZE; x++) {
+        const t = x / SIZE;
+        const s = 0.6 * Math.sin(t * Math.PI * 9 + 0.7) + 0.4 * Math.sin(t * Math.PI * 23 + 2.1);
+        ctx.fillStyle = s > 0 ? `rgba(255,255,255,${(0.06 * s).toFixed(3)})` : `rgba(0,0,0,${(-0.09 * s).toFixed(3)})`;
+        ctx.fillRect(x, 0, 1, SIZE);
+      }
+      const hem = px(14);
+      for (const y of [0, SIZE - hem]) {
+        ctx.fillStyle = 'rgba(0,0,0,0.16)';
+        ctx.fillRect(0, y, SIZE, hem);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';           // stitch line
+        for (let x = 0; x < SIZE; x += px(5)) ctx.fillRect(x, y + (y === 0 ? hem - px(2) : px(1)), px(3), px(1));
+      }
+      for (let x = px(10); x < SIZE; x += px(40)) {         // eyelets along the top
+        ctx.fillStyle = '#c9ccd2';
+        ctx.beginPath(); ctx.arc(x, hem / 2, px(3), 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#2a2c30';
+        ctx.beginPath(); ctx.arc(x, hem / 2, px(1.5), 0, Math.PI * 2); ctx.fill();
+      }
+      grain(ctx, 3);
       break;
     }
     case 'DECOR_MARKER': {
@@ -1098,17 +1260,41 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_LIGHTS': {
-      // black panel with a row of five red start lights (lit).
-      ctx.fillStyle = '#0b0d11';
+      // Start-light panel, drawn for its real proportions: the quad is
+      // LIGHTS_ASPECT times wider than it is tall, so a round lamp has to be
+      // drawn that much narrower here to come out round on the gantry. Five
+      // pods, each with a lit red lamp over an unlit one, under a visor.
+      const A = LIGHTS_ASPECT;
+      const sx = (m: number) => (m / A) * SIZE;             // across: metres of panel height units
+      ctx.fillStyle = '#0c0d10';
       ctx.fillRect(0, 0, SIZE, SIZE);
-      const n = 5, r = SIZE / 14;
-      for (let k = 0; k < n; k++) {
-        const cx = (SIZE / (n + 1)) * (k + 1);
-        const cy = SIZE / 2;
-        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, r * 1.6);
-        g.addColorStop(0, '#ff5a4a'); g.addColorStop(0.6, '#d21f10'); g.addColorStop(1, 'rgba(120,10,5,0.2)');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#2b2e35';                          // housing frame
+      ctx.lineWidth = px(6);
+      ctx.strokeRect(px(3), px(3), SIZE - px(6), SIZE - px(6));
+      const r = 0.14;                                        // lamp radius, in panel heights
+      for (let k = 0; k < 5; k++) {
+        const cx = ((k + 0.5) / 5) * SIZE;
+        // pod
+        ctx.fillStyle = '#16181d';
+        ctx.fillRect(cx - sx(0.42), SIZE * 0.06, sx(0.84), SIZE * 0.88);
+        for (const [cyf, lit] of [[0.32, true], [0.72, false]] as [number, boolean][]) {
+          const cy = cyf * SIZE, rx = sx(r), ry = r * SIZE;
+          if (lit) {
+            const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, ry * 1.5);
+            g.addColorStop(0, 'rgba(255,120,96,1)'); g.addColorStop(0.45, 'rgba(232,32,18,0.95)');
+            g.addColorStop(1, 'rgba(160,10,4,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.ellipse(cx, cy, rx * 1.5, ry * 1.5, 0, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.fillStyle = lit ? '#ff5a40' : '#3a0a08';      // the lens itself
+          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+          if (!lit) {                                       // unlit glass still catches light
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.beginPath(); ctx.ellipse(cx - rx * 0.35, cy - ry * 0.4, rx * 0.22, ry * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.fillStyle = '#050607';                        // visor shading the top
+          ctx.beginPath(); ctx.ellipse(cx, cy - ry * 0.55, rx * 1.15, ry * 0.5, 0, Math.PI, Math.PI * 2); ctx.fill();
+        }
       }
       break;
     }
@@ -1146,39 +1332,148 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_FRAME': {
-      grain(ctx, 7);
-      speckle(ctx, 250, [0.4, 1.0], 0.10, false);
+      // PRECAST CONCRETE - the grandstand's risers, back and end walls. Mapped
+      // world-anchored at one tile per 4 m, so it must tile both ways: nothing
+      // here starts or stops inside the tile. Panel joints every 2 m, and the
+      // grid of form-tie holes every precast panel carries.
+      const conc: RGB = [150, 149, 144];
+      ctx.fillStyle = shade(conc, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      grain(ctx, 5);
+      for (let i = 0; i < dens(10); i++) {                  // pour-to-pour tone
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(20 + Math.random() * 40);
+        const k = 0.9 + Math.random() * 0.16;
+        wrap(x, y, r, (wx, wy) => {
+          const g = ctx.createRadialGradient(wx, wy, 1, wx, wy, r);
+          g.addColorStop(0, shade(conc, k, 0.35));
+          g.addColorStop(1, shade(conc, k, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      speckle(ctx, dens(260), [0.4, 1.4], 0.08, false);
+      for (let i = 0; i < dens(10); i++) {                  // rain: full height, so it tiles
+        ctx.fillStyle = `rgba(52,48,42,${0.04 + Math.random() * 0.07})`;
+        ctx.fillRect(Math.random() * SIZE, 0, px(1) + Math.random() * px(5), SIZE);
+      }
+      const tie = SIZE / 6.5;                               // ~0.6 m grid
+      for (let y = tie / 2; y < SIZE; y += tie) {
+        for (let x = tie / 2; x < SIZE; x += tie) {
+          ctx.fillStyle = 'rgba(255,255,255,0.18)';
+          ctx.beginPath(); ctx.arc(x + px(0.5), y + px(0.5), px(2.6), 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(30,28,26,0.55)';
+          ctx.beginPath(); ctx.arc(x, y, px(1.9), 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      for (const x of [0, SIZE / 2]) {                      // panel joints
+        ctx.fillStyle = 'rgba(0,0,0,0.42)';
+        ctx.fillRect(x, 0, px(2), SIZE);
+        ao(ctx, x + px(2), 0, px(7), SIZE, 'right', 0.26);
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';
+        ctx.fillRect(x - px(1), 0, px(1), SIZE);
+      }
+      break;
+    }
+    case 'DECOR_STEEL': {
+      // Painted structural steel: grandstand columns and brake-board legs.
+      // paintBox gives each face a world-planar slice at one tile per 4 m, so
+      // this tiles both ways and carries no lighting of its own - the engine
+      // lights each face. Weathering only.
+      const paint: RGB = [118, 124, 134];
+      ctx.fillStyle = shade(paint, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      grain(ctx, 4);
+      speckle(ctx, dens(150), [0.4, 1.6], 0.06, true);
+      for (let i = 0; i < dens(14); i++) {                  // full-height run marks
+        ctx.fillStyle = `rgba(40,38,34,${0.04 + Math.random() * 0.08})`;
+        ctx.fillRect(Math.random() * SIZE, 0, px(0.8) + Math.random() * px(3), SIZE);
+      }
+      for (let i = 0; i < dens(5); i++) {                   // the odd chip, to primer or rust
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(0.4) + Math.random() * px(0.9);
+        ctx.fillStyle = Math.random() < 0.5 ? 'rgba(176,170,156,0.32)' : 'rgba(104,56,26,0.36)';
+        ctx.beginPath(); ctx.ellipse(x, y, r * 1.5, r, Math.random() * Math.PI, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'DECOR_RAIL': {
+      // Grandstand front: a concrete upstand with a galvanised handrail on
+      // stanchions above it. U runs one tile per 2 m (stanchions every 1 m)
+      // and V spans the parapet's full 1.1 m exactly once - it does NOT
+      // repeat, so it can have a coping, a gap and a dirty foot.
+      const conc: RGB = [154, 153, 148];
+      const steel: RGB = [178, 184, 190];
+      const railY = px(4), railH = px(12);
+      const gapY0 = railY + railH, gapY1 = SIZE * 0.3;
+      ctx.fillStyle = '#26282d';                            // looking through to the stand
+      ctx.fillRect(0, 0, SIZE, gapY1);
+      for (const x of [SIZE * 0.25, SIZE * 0.75]) {         // stanchions
+        const w = px(7);
+        const g = ctx.createLinearGradient(x - w, 0, x + w, 0);
+        g.addColorStop(0, shade(steel, 0.5)); g.addColorStop(0.35, shade(steel, 1.25));
+        g.addColorStop(1, shade(steel, 0.55));
+        ctx.fillStyle = g;
+        ctx.fillRect(x - w, gapY0, w * 2, gapY1 - gapY0);
+      }
+      cylBar(ctx, railY, railH, steel);                     // handrail
+      ao(ctx, 0, gapY0, SIZE, px(6), 'down', 0.5);
+      // upstand
+      ctx.fillStyle = shade(conc, 1);
+      ctx.fillRect(0, gapY1, SIZE, SIZE - gapY1);
+      grain(ctx, 4);
+      speckle(ctx, dens(120), [0.4, 1.3], 0.07, false);
+      ctx.fillStyle = shade(conc, 1.22);                    // coping
+      ctx.fillRect(0, gapY1, SIZE, px(9));
+      ao(ctx, 0, gapY1 + px(9), SIZE, px(10), 'down', 0.38);
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';                   // joint every 2 m
+      ctx.fillRect(0, gapY1, px(2), SIZE - gapY1);
+      streaks(ctx, dens(14), gapY1 + px(9), SIZE * 0.5, 0.09);
+      groundGrime(ctx, 0.2, 0.5);
       break;
     }
     case 'DECOR_LAMP': {
-      // Lamp head: a grid of bright lens squares in a dark housing, so the
-      // fixture reads as a floodlight cluster rather than a white box.
-      ctx.fillStyle = '#2a2c31';
+      // Floodlight head: a grid of lamps in a dark housing. The head is a box
+      // 2.3 m wide and 0.9 m tall, mapped at one tile per 4 m - so a face shows
+      // just over half the tile's width and its bottom fifth. The grid is at
+      // real scale (9 lamps per 4 m) and tiles, so any window of it is right.
+      ctx.fillStyle = '#23252a';
       ctx.fillRect(0, 0, SIZE, SIZE);
-      const cell = px(42);
-      for (let y = px(6); y < SIZE - px(6); y += cell) {
-        for (let x = px(6); x < SIZE - px(6); x += cell) {
-          const g2 = ctx.createRadialGradient(x + cell * 0.4, y + cell * 0.4, 1, x + cell * 0.4, y + cell * 0.4, cell * 0.5);
-          g2.addColorStop(0, '#ffffff');
-          g2.addColorStop(0.55, '#fff3cf');
-          g2.addColorStop(1, 'rgba(255,225,160,0.35)');
-          ctx.fillStyle = g2;
-          ctx.fillRect(x, y, cell * 0.8, cell * 0.8);
+      const cell = SIZE / 9;
+      for (let y = 0; y < SIZE; y += cell) {
+        for (let x = 0; x < SIZE; x += cell) {
+          const cx = x + cell / 2, cy = y + cell / 2, r = cell * 0.38;
+          ctx.fillStyle = '#121316';                        // recess
+          ctx.fillRect(x + cell * 0.06, y + cell * 0.06, cell * 0.88, cell * 0.88);
+          const g = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 1, cx, cy, r);
+          g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, '#fff1c8'); g.addColorStop(1, '#c8a868');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = 'rgba(180,184,190,0.5)';        // reflector rim
+          ctx.lineWidth = px(1.2);
+          ctx.beginPath(); ctx.arc(cx, cy, r + px(1.5), 0, Math.PI * 2); ctx.stroke();
         }
       }
       break;
     }
     case 'DECOR_MAST': {
-      // Galvanised pole: vertical shading + faint banding.
-      const [r, g, b] = hexRgb(hex);
-      for (let x = 0; x < SIZE; x++) {
-        const k = 1 - Math.abs(x - SIZE / 2) / (SIZE / 2);
-        const d = -34 + 58 * k;
-        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        ctx.fillRect(x, 0, 1, SIZE);
+      // Galvanised floodlight mast. Same paintBox mapping as the poles, so the
+      // same rule: tileable, no baked-in lighting. One bolted flange per 4 m
+      // tile, and the mottled zinc that galvanising always has.
+      const zinc: RGB = [154, 160, 166];
+      ctx.fillStyle = shade(zinc, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      speckle(ctx, dens(380), [0.6, 2.4], 0.08, true);
+      speckle(ctx, dens(220), [0.5, 1.8], 0.07, false);
+      for (let i = 0; i < dens(12); i++) {
+        ctx.fillStyle = `rgba(48,44,38,${0.04 + Math.random() * 0.07})`;
+        ctx.fillRect(Math.random() * SIZE, 0, px(1) + Math.random() * px(4), SIZE);
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.14)';
-      for (let y = 0; y < SIZE; y += px(64)) ctx.fillRect(0, y, SIZE, px(2));
+      const fy = SIZE * 0.5, fh = px(10);
+      ctx.fillStyle = shade(zinc, 1.12);
+      ctx.fillRect(0, fy, SIZE, fh);
+      ao(ctx, 0, fy + fh, SIZE, px(8), 'down', 0.4);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(0, fy, SIZE, px(1.2));
+      for (let x = px(8); x < SIZE; x += px(22)) bolt(ctx, x, fy + fh / 2, px(2.2));
       break;
     }
     case 'DECOR_GRASSTUFT': {
@@ -1273,14 +1568,19 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_POLE': {
-      // vertical cylinder shading: bright centre, darker edges
-      const [r, g, b] = hexRgb(hex);
-      for (let x = 0; x < SIZE; x++) {
-        const k = 1 - Math.abs(x - SIZE / 2) / (SIZE / 2);
-        const d = -30 + 55 * k;
-        ctx.fillStyle = `rgb(${r + d},${g + d},${b + d})`;
-        ctx.fillRect(x, 0, 1, SIZE);
+      // Painted pole (flag pole, arch posts). paintBox gives each side a
+      // world-planar slice of U, so the old single sine of 'cylinder shading'
+      // landed on each face at an arbitrary brightness. Tile both ways, carry
+      // no lighting of its own, weather it.
+      const base = hexRgb(hex) as RGB;
+      ctx.fillStyle = shade(base, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      grain(ctx, 4);
+      for (let i = 0; i < dens(12); i++) {
+        ctx.fillStyle = `rgba(50,46,40,${0.04 + Math.random() * 0.07})`;
+        ctx.fillRect(Math.random() * SIZE, 0, px(0.8) + Math.random() * px(3), SIZE);
       }
+      speckle(ctx, dens(90), [0.4, 1.4], 0.06, false);
       break;
     }
     default:
