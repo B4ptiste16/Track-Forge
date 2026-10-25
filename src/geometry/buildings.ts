@@ -54,12 +54,20 @@ export function buildBuildings(buildings: Building[], samples: CenterlineSample[
       mesh.uvs!.push([0, 0], [0, b.h / 4], [len / 4, 0], [len / 4, b.h / 4]);
       addQuadToward(mesh.vertices, mesh.faces, base, base + 1, base + 3, base + 2, out);
     }
-    const base = mesh.vertices.length;
-    for (const [x, y] of c) {
-      mesh.vertices.push([x, y, z0 + b.h]);
-      mesh.uvs!.push([x / 6, y / 6]);
+    // The ROOF is not the facade. It used to share the facade's material, so
+    // every roof was tiled with that facade's windows. All building roofs share
+    // one roofing material instead, whatever the walls are made of.
+    let roof = meshes.get('DECOR_ROOF');
+    if (!roof) {
+      roof = { name: 'DECOR_ROOF', vertices: [], faces: [], uvs: [] };
+      meshes.set('DECOR_ROOF', roof);
     }
-    addQuadUp(mesh.vertices, mesh.faces, base, base + 1, base + 2, base + 3);
+    const base = roof.vertices.length;
+    for (const [x, y] of c) {
+      roof.vertices.push([x, y, z0 + b.h]);
+      roof.uvs!.push([x / 6, y / 6]);
+    }
+    addQuadUp(roof.vertices, roof.faces, base, base + 1, base + 2, base + 3);
   }
   return [...meshes.values()];
 }

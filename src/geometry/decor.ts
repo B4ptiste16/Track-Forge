@@ -28,6 +28,47 @@ function mesh(name: string): MeshData {
   return { name, vertices: [], faces: [], colors: [], uvs: [] };
 }
 
+// TREE ATLAS. Trees used to get their variety — and their brown trunks — from
+// vertex colours, but a KN5 vertex carries position, normal, UV and tangent and
+// nothing else, so the FBX never wrote them and the game never saw them. Every
+// tree in game was the same green, trunk included. Variety therefore has to
+// live in the UVs: one texture holding bark and three foliage tones, and each
+// tree's faces pointed at the region they should show. The texture generator
+// reads this same table, so the two cannot drift apart.
+//                    u0    v0    u1    v1      (V runs up)
+export const TREE_ATLAS = {
+  bark: [0, 0.5, 0.5, 1] as const,
+  leafA: [0.5, 0.5, 1, 1] as const, // fresh, light
+  leafB: [0, 0, 0.5, 0.5] as const, // mid
+  leafC: [0.5, 0, 1, 0.5] as const, // dark, conifer-like
+};
+type Region = readonly [number, number, number, number];
+
+// Send the UVs added since `from` into an atlas region. With `normalise` they
+// are first scaled to their own bounding box (for planar caps); otherwise they
+// are taken as already being in 0..1. Inset slightly so mip-mapping never
+// samples the neighbouring region.
+function toRegion(m: MeshData, from: number, r: Region, normalise = false, flipU = false): void {
+  const uvs = m.uvs!;
+  let u0 = 0, u1 = 1, v0 = 0, v1 = 1;
+  if (normalise) {
+    u0 = Infinity; u1 = -Infinity; v0 = Infinity; v1 = -Infinity;
+    for (let i = from; i < uvs.length; i++) {
+      u0 = Math.min(u0, uvs[i][0]); u1 = Math.max(u1, uvs[i][0]);
+      v0 = Math.min(v0, uvs[i][1]); v1 = Math.max(v1, uvs[i][1]);
+    }
+  }
+  const du = u1 - u0 || 1, dv = v1 - v0 || 1;
+  const pu = (r[2] - r[0]) * 0.02, pv = (r[3] - r[1]) * 0.02;
+  const ru0 = r[0] + pu, ru1 = r[2] - pu, rv0 = r[1] + pv, rv1 = r[3] - pv;
+  for (let i = from; i < uvs.length; i++) {
+    let nu = (uvs[i][0] - u0) / du;
+    const nv = (uvs[i][1] - v0) / dv;
+    if (flipU) nu = 1 - nu;
+    uvs[i] = [ru0 + nu * (ru1 - ru0), rv0 + nv * (rv1 - rv0)];
+  }
+}
+
 // Push a vertical quad (posts a->b, z0..z1) coloured `col`, facing `dir`.
 // `uspan` maps the texture across it horizontally (default planar-ish).
 function paintQuad(
@@ -136,12 +177,24 @@ function paintBox(m: MeshData, cx: number, cy: number, z0: number, z1: number, h
 // ~30 triangles, so a full treeline stays cheap.
 function paintTree(m: MeshData, x: number, y: number, z: number, h: number, rng: () => number): void {
   const trunkH = h * 0.34;
-  const brown: Vec3 = [0.28 + rng() * 0.08, 0.19 + rng() * 0.05, 0.11];
-  paintBox(m, x, y, z, z + trunkH, h * 0.035, brown);
+  const BROWN: Vec3 = [0.3, 0.2, 0.11]; // kept for the preview's flat fallback only
+  const GREEN: Vec3 = [0.3, 0.46, 0.2];
+  // Trunk: four faces wrapping the bark region once, so the bark runs round it.
+  const tw = h * 0.035;
+  const tc: [number, number][] = [[x - tw, y - tw], [x + tw, y - tw], [x + tw, y + tw], [x - tw, y + tw]];
+  for (let k = 0; k < 4; k++) {
+    const a = tc[k], b = tc[(k + 1) % 4];
+    const out: Vec3 = [(a[0] + b[0]) / 2 - x, (a[1] + b[1]) / 2 - y, 0];
+    const from = m.uvs!.length;
+    paintQuad(m, [a[0], a[1], 0], [b[0], b[1], 0], z, z + trunkH, BROWN, out, [k / 4, (k + 1) / 4]);
+    toRegion(m, from, TREE_ATLAS.bark);
+  }
+  // One foliage tone per tree, and a random mirror, so a treeline varies even
+  // though every tree shares a single material.
+  const pick = rng();
+  const leaf = pick < 0.35 ? TREE_ATLAS.leafA : pick < 0.75 ? TREE_ATLAS.leafB : TREE_ATLAS.leafC;
+  const flip = rng() < 0.5;
   // canopy: 3 stacked hexagonal rings, each narrower than the one below
-  const g = 0.16 + rng() * 0.16; // per-tree green variation
-  const green: Vec3 = [0.13 + g * 0.35, 0.30 + g, 0.12 + g * 0.25];
-  const dark: Vec3 = [green[0] * 0.72, green[1] * 0.72, green[2] * 0.72];
   const tiers = 3;
   for (let t = 0; t < tiers; t++) {
     const z0 = z + trunkH + (h - trunkH) * (t / tiers) * 0.9;
@@ -153,24 +206,34 @@ function paintTree(m: MeshData, x: number, y: number, z: number, h: number, rng:
       const a = (k / n) * Math.PI * 2 + rng() * 0.2;
       pts.push([x + Math.cos(a) * rad, y + Math.sin(a) * rad]);
     }
+    // EVERY face takes the whole region. Wrapping one region round the ring
+    // instead put ~256 px across a ~19 m circumference against ~256 px up a
+    // 2.5 m tier - the leaf clumps were smeared ~7x wide and the canopy read as
+    // horizontal stripes. Alternate faces are mirrored, so each face's edge
+    // meets its neighbour's identical edge and the ring has no seams; n is
+    // even, so the last face meets the first the same way.
     for (let k = 0; k < n; k++) {
       const a = pts[k], b = pts[(k + 1) % n];
       const out: Vec3 = [(a[0] + b[0]) / 2 - x, (a[1] + b[1]) / 2 - y, 0];
-      paintQuad(m, [a[0], a[1], 0], [b[0], b[1], 0], z0, z1, t === 0 ? dark : green, out);
+      const from = m.uvs!.length;
+      paintQuad(m, [a[0], a[1], 0], [b[0], b[1], 0], z0, z1, GREEN, out, [0, 1]);
+      toRegion(m, from, leaf, false, flip !== (k % 2 === 1));
     }
     if (t === tiers - 1) { // cap the top so it isn't hollow when seen from above
+      const from = m.uvs!.length;
       const base = m.vertices.length;
       m.vertices.push([x, y, z1 + h * 0.06]);
-      m.colors!.push(green);
-      m.uvs!.push([x / 4, y / 4]);
+      m.colors!.push(GREEN);
+      m.uvs!.push([x, y]);
       for (let k = 0; k < n; k++) {
         const a = pts[k], b = pts[(k + 1) % n];
         const bi = m.vertices.length;
         m.vertices.push([a[0], a[1], z1], [b[0], b[1], z1]);
-        m.colors!.push(green, green);
-        m.uvs!.push([a[0] / 4, a[1] / 4], [b[0] / 4, b[1] / 4]);
+        m.colors!.push(GREEN, GREEN);
+        m.uvs!.push([a[0], a[1]], [b[0], b[1]]);
         m.faces.push([base, bi, bi + 1]);
       }
+      toRegion(m, from, leaf, true);
     }
   }
 }
@@ -281,6 +344,7 @@ function buildTrees(
 function buildStand(
   seat: MeshData,
   frame: MeshData,
+  roof: MeshData,
   samples: CenterlineSample[],
   idx: number[],
   side: 'left' | 'right',
@@ -345,8 +409,9 @@ function buildStand(
     const q1 = at(i, oA), q2 = at(i, oB), q3 = at(j, oA), q4 = at(j, oB);
     m.vertices.push([q1[0], q1[1], z], [q2[0], q2[1], z], [q3[0], q3[1], z], [q4[0], q4[1], z]);
     for (let k = 0; k < 4; k++) m.colors!.push(col);
-    const ui = samples[i].dist / BAND, uj = samples[j].dist / BAND;
-    m.uvs!.push([ui, 0], [ui, 1], [uj, 0], [uj, 1]);
+    // planar, one tile per 6 m — the same mapping building roofs use, so the
+    // roofing membrane reads at the same scale on both
+    for (const q of [q1, q2, q3, q4]) m.uvs!.push([q[0] / 6, q[1] / 6]);
     addQuadUp(m.vertices, m.faces, b, b + 1, b + 3, b + 2);
   };
 
@@ -355,7 +420,10 @@ function buildStand(
     const [lx, ly] = perpLeft(samples[i].heading);
     const inward: Vec3 = [-lx * sign, -ly * sign, 0];
     const outward: Vec3 = [lx * sign, ly * sign, 0];
-    slab(frame, i, j, oFront - OVERHANG, oRear + 0.6, zRoof, ROOF);           // roof deck
+    // The deck was frame steel. It is a roof, so it gets roofing - and its
+    // own material, because the darker tone it was given here was a vertex
+    // colour, and those never reach the game.
+    slab(roof, i, j, oFront - OVERHANG, oRear + 0.6, zRoof, ROOF);
     paintQuad(frame, at(i, oFront - OVERHANG), at(j, oFront - OVERHANG),       // front fascia
       zRoof - 0.6, zRoof, ROOF, inward);
     paintQuad(frame, at(i, oRear), at(j, oRear), zSeatTop, zRoof, [0.5, 0.52, 0.57], outward);
@@ -402,6 +470,7 @@ export function buildDecor(
   const flag = mesh('DECOR_FLAG');
   const stand = mesh('DECOR_STAND');
   const frame = mesh('DECOR_FRAME');
+  const standRoof = mesh('DECOR_STANDROOF');
   const arch = mesh('DECOR_ARCH');
 
   const idxOfSpan = (span: SegmentSpan): number[] => {
@@ -483,7 +552,7 @@ export function buildDecor(
         const mid = sub[Math.floor(sub.length / 2)];
         const off = clearOff(mid, side);
         if (standAreaClear(sub, side, off)) {
-          buildStand(stand, frame, samples, sub, side, off, seats);
+          buildStand(stand, frame, standRoof, samples, sub, side, off, seats);
           standZones.push({ side, from: samples[sub[0]].dist, to: samples[sub[sub.length - 1]].dist });
         }
       }
@@ -496,7 +565,7 @@ export function buildDecor(
       const mid = idx[Math.floor(idx.length / 2)];
       const off = clearOff(mid, outside) + 9;
       if (standAreaClear(idx, outside, off)) {
-        buildStand(stand, frame, samples, idx, outside, off, seats);
+        buildStand(stand, frame, standRoof, samples, idx, outside, off, seats);
         standZones.push({ side: outside, from: samples[idx[0]].dist, to: samples[idx[idx.length - 1]].dist });
       }
     }
@@ -564,18 +633,39 @@ export function buildDecor(
     const s = samples[sf];
     const pl = offsetPoint(s, width / 2 + 1.5);
     const pr = offsetPoint(s, -(width / 2 + 1.5));
-    const H = 6.5, BEAM = 0.5;
+    const H = 6.5, BEAM = 0.8; // a gantry is a structure, not a sign rail
     const STEEL: Vec3 = [0.72, 0.74, 0.78];
     paintBox(gantry, pl[0], pl[1], pl[2], pl[2] + H, 0.28, STEEL);
     paintBox(gantry, pr[0], pr[1], pr[2], pr[2] + H, 0.28, STEEL);
     const zTop = Math.max(pl[2], pr[2]) + H;
     const fwd: Vec3 = [Math.cos(s.heading), Math.sin(s.heading), 0];
-    // overhead beam across the track
-    paintQuad(gantry, [pl[0], pl[1], 0], [pr[0], pr[1], 0], zTop - BEAM, zTop, STEEL, fwd, [0, 1]);
-    paintQuad(gantry, [pr[0], pr[1], 0], [pl[0], pl[1], 0], zTop - BEAM, zTop, STEEL, [-fwd[0], -fwd[1], 0], [0, 1]);
-    // light panel hanging under the beam, facing the grid (normal = -travel)
-    const lz1 = zTop - BEAM, lz0 = lz1 - 0.9;
-    paintQuad(lights, [pl[0], pl[1], 0], [pr[0], pr[1], 0], lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
+    // OVERHEAD BEAM — a box section. It used to be two quads on the SAME plane
+    // facing opposite ways: a paper-thin plate, and because the FBX turns
+    // culling off, both faces drew in the same place and z-fought each other.
+    // Front, back, top and underside, BEAM_D deep along the direction of travel.
+    const BEAM_D = 0.7;
+    const span = Math.hypot(pr[0] - pl[0], pr[1] - pl[1]);
+    const off = (p: Vec3, d: number): [number, number] => [p[0] + fwd[0] * d, p[1] + fwd[1] * d];
+    const zLo = zTop - BEAM;
+    const face = (a: [number, number], b: [number, number], c: [number, number], d: [number, number],
+      za: number, zb: number, zc: number, zd: number, vLen: number, dir: Vec3) => {
+      const base = gantry.vertices.length;
+      gantry.vertices.push([a[0], a[1], za], [b[0], b[1], zb], [c[0], c[1], zc], [d[0], d[1], zd]);
+      for (let k = 0; k < 4; k++) gantry.colors!.push(STEEL);
+      // tile every 4 m along the beam rather than stretching one tile across it
+      gantry.uvs!.push([0, 0], [0, vLen / 4], [span / 4, 0], [span / 4, vLen / 4]);
+      addQuadToward(gantry.vertices, gantry.faces, base, base + 1, base + 3, base + 2, dir);
+    };
+    const lf = off(pl, -BEAM_D / 2), rf = off(pr, -BEAM_D / 2); // front (grid side)
+    const lb = off(pl, BEAM_D / 2), rb = off(pr, BEAM_D / 2);   // back
+    face(lf, lf, rf, rf, zLo, zTop, zLo, zTop, BEAM, [-fwd[0], -fwd[1], 0]);
+    face(lb, lb, rb, rb, zLo, zTop, zLo, zTop, BEAM, fwd);
+    face(lf, lb, rf, rb, zTop, zTop, zTop, zTop, BEAM_D, [0, 0, 1]);
+    face(lf, lb, rf, rb, zLo, zLo, zLo, zLo, BEAM_D, [0, 0, -1]);
+    // light panel hanging under the beam, flush with its front face, facing
+    // the grid (normal = -travel)
+    const lz1 = zLo, lz0 = lz1 - 0.9;
+    paintQuad(lights, [lf[0], lf[1], 0], [rf[0], rf[1], 0], lz0, lz1, [0.05, 0.05, 0.06], [-fwd[0], -fwd[1], 0], [0, 1]);
   }
 
   // Treeline outside the barriers (density from the circuit preset).
@@ -590,7 +680,7 @@ export function buildDecor(
     ? buildLightMasts(mastPole, mastLamp, samples, width, resolved, project.decor!.lightSpacing!)
     : [];
 
-  const meshes = [pole, flag, stand, frame, arch, marker, gantry, lights, tree, mastPole, mastLamp]
+  const meshes = [pole, flag, stand, frame, standRoof, arch, marker, gantry, lights, tree, mastPole, mastLamp]
     .filter((m) => m.faces.length > 0);
   return { meshes, masts };
 }

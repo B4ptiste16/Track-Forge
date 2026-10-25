@@ -3,7 +3,7 @@ import type { Theme, WallStyle } from '../types';
 import { meshColor, type Palette } from '../state/project';
 import { ADVERT_ASPECT } from '../geometry/runoff';
 import { KERB_PATTERNS } from '../geometry/kerbs';
-import { SEAT_PATTERNS } from '../geometry/decor';
+import { SEAT_PATTERNS, TREE_ATLAS } from '../geometry/decor';
 
 export interface TexFile {
   path: string; // e.g. texture/road.png (the subfolder KsEditor searches)
@@ -634,53 +634,213 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       grain(ctx, 5);
       break;
     }
+    // BUILDING FACADES. Building walls are UV'd at ONE TILE PER 4 m on both
+    // axes, so each of these is exactly one storey, 4 m wide, at real scale:
+    // 128 px to the metre. The old office texture drew ~120 windows per tile -
+    // 30 cm windows - which is why buildings read as graph paper. Nothing here
+    // may use groundGrime(): the tile repeats every storey, so dirt at the foot
+    // of the tile would be dirt at every floor line.
     case 'DECOR_BUILDING': {
-      grain(ctx, 6);
-      // window grid
-      ctx.fillStyle = 'rgba(30,40,55,0.85)';
-      for (let y = 24; y < SIZE - 16; y += 48) {
-        for (let x = 16; x < SIZE - 16; x += 40) ctx.fillRect(x, y, 24, 20);
-      }
-      break;
-    }
-    case 'DECOR_BLDGLASS': { // full glass curtain wall
-      grain(ctx, 3);
-      for (let y = 4; y < SIZE; y += 36) {
-        for (let x = 4; x < SIZE; x += 30) {
-          const sky = 120 + Math.random() * 70;
-          ctx.fillStyle = `rgba(${sky * 0.75},${sky * 0.9},${sky},0.9)`;
-          ctx.fillRect(x, y, 26, 32);
+      const M = SIZE / 4;                                   // px per metre
+      const rend: RGB = hexRgb(hex) as RGB;
+      grain(ctx, 4);
+      speckle(ctx, dens(160), [0.4, 1.4], 0.05, false);
+      // floor slab edge at the foot of the storey
+      const slabY = SIZE - 0.4 * M;
+      ctx.fillStyle = shade(rend, 1.12);
+      ctx.fillRect(0, slabY, SIZE, SIZE - slabY);
+      ao(ctx, 0, slabY, SIZE, px(4), 'down', 0.35);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(0, slabY, SIZE, px(1));
+      // two windows, 1.4 m x 2.0 m, head 0.5 m below the slab above
+      const wy0 = 0.5 * M, wy1 = wy0 + 2.0 * M, ww = 1.4 * M;
+      for (const cx of [SIZE * 0.25, SIZE * 0.75]) {
+        const x0 = cx - ww / 2, x1 = cx + ww / 2;
+        const g = ctx.createLinearGradient(0, wy0, 0, wy1);
+        g.addColorStop(0, '#a7bccd');                       // sky in the upper pane
+        g.addColorStop(0.42, '#6f879a');
+        g.addColorStop(1, '#2f3b46');                       // dark interior below
+        ctx.fillStyle = g;
+        ctx.fillRect(x0, wy0, ww, wy1 - wy0);
+        const r = ctx.createLinearGradient(x0, wy0, x1, wy1); // one diagonal reflection
+        r.addColorStop(0.25, 'rgba(255,255,255,0)');
+        r.addColorStop(0.4, 'rgba(255,255,255,0.2)');
+        r.addColorStop(0.52, 'rgba(255,255,255,0)');
+        ctx.fillStyle = r;
+        ctx.fillRect(x0, wy0, ww, wy1 - wy0);
+        ctx.fillStyle = 'rgba(36,40,46,0.95)';              // frame, mullion, transom
+        ctx.lineWidth = px(3);
+        ctx.strokeStyle = 'rgba(36,40,46,0.95)';
+        ctx.strokeRect(x0 + px(1.5), wy0 + px(1.5), ww - px(3), wy1 - wy0 - px(3));
+        ctx.fillRect(cx - px(1.5), wy0, px(3), wy1 - wy0);
+        ctx.fillRect(x0, wy0 + (wy1 - wy0) * 0.3, ww, px(2.5));
+        ao(ctx, x0, wy0, ww, px(14), 'down', 0.55);        // deep reveal under the head
+        ao(ctx, x0, wy0, px(9), wy1 - wy0, 'right', 0.35);  // and down one jamb
+        ctx.fillStyle = shade(rend, 1.3);                   // projecting sill
+        ctx.fillRect(x0 - px(5), wy1, ww + px(10), px(5));
+        ao(ctx, x0 - px(5), wy1 + px(5), ww + px(10), px(8), 'down', 0.4);
+        for (let k = 0; k < 4; k++) {                       // dirt washed off the sill
+          const sx = x0 + Math.random() * ww;
+          const g2 = ctx.createLinearGradient(0, wy1 + px(5), 0, slabY);
+          g2.addColorStop(0, 'rgba(40,36,30,0.16)');
+          g2.addColorStop(1, 'rgba(40,36,30,0)');
+          ctx.fillStyle = g2;
+          ctx.fillRect(sx, wy1 + px(5), px(2) + Math.random() * px(5), slabY - wy1 - px(5));
         }
       }
-      ctx.fillStyle = 'rgba(20,25,32,0.8)'; // mullions
-      for (let y = 0; y < SIZE; y += 36) ctx.fillRect(0, y, SIZE, 4);
-      for (let x = 0; x < SIZE; x += 30) ctx.fillRect(x, 0, 4, SIZE);
+      ctx.fillStyle = 'rgba(0,0,0,0.1)';                    // render panel joints
+      for (const x of [0, SIZE / 2]) ctx.fillRect(x, 0, px(1.2), slabY);
       break;
     }
-    case 'DECOR_BLDBRICK': { // brick courses with mortar joints
-      grain(ctx, 8);
-      ctx.fillStyle = 'rgba(230,225,215,0.5)';
-      for (let y = 0; y < SIZE; y += 16) {
-        ctx.fillRect(0, y, SIZE, 2);
-        const off = (y / 16) % 2 === 0 ? 0 : 16;
-        for (let x = off; x < SIZE; x += 32) ctx.fillRect(x, y, 2, 16);
+    case 'DECOR_BLDGLASS': { // structural glass curtain wall
+      const M = SIZE / 4;
+      const panelW = SIZE / 3;                              // 1.33 m modules
+      const transY = SIZE - 0.9 * M;                        // spandrel line
+      const mull = px(4.5);
+      for (let k = 0; k < 3; k++) {
+        const x0 = k * panelW;
+        const t = 0.85 + Math.random() * 0.3;               // each pane its own sky
+        const g = ctx.createLinearGradient(0, 0, 0, transY);
+        g.addColorStop(0, `rgb(${Math.round(150 * t)},${Math.round(178 * t)},${Math.round(200 * t)})`);
+        g.addColorStop(0.55, `rgb(${Math.round(98 * t)},${Math.round(124 * t)},${Math.round(146 * t)})`);
+        g.addColorStop(1, `rgb(${Math.round(56 * t)},${Math.round(72 * t)},${Math.round(88 * t)})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x0, 0, panelW, transY);
+        if (k === 1) {                                      // blinds half down in one bay
+          ctx.fillStyle = 'rgba(214,214,206,0.42)';
+          for (let y = px(4); y < transY * 0.38; y += px(5)) ctx.fillRect(x0, y, panelW, px(3));
+        }
       }
-      ctx.fillStyle = 'rgba(30,40,55,0.85)'; // sparse windows
-      for (let y = 30; y < SIZE - 20; y += 64) {
-        for (let x = 20; x < SIZE - 20; x += 72) ctx.fillRect(x, y, 28, 24);
+      // one continuous reflection across the whole sheet, mullions included
+      const refl = ctx.createLinearGradient(0, 0, SIZE, transY);
+      refl.addColorStop(0.2, 'rgba(255,255,255,0)');
+      refl.addColorStop(0.36, 'rgba(255,255,255,0.22)');
+      refl.addColorStop(0.46, 'rgba(255,255,255,0)');
+      ctx.fillStyle = refl;
+      ctx.fillRect(0, 0, SIZE, transY);
+      // spandrel: opaque, darker glass over the floor slab
+      vgrad(ctx, transY, SIZE, [[0, '#34404c'], [1, '#232b33']]);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(0, transY + px(6), SIZE, px(2));
+      // anodised frame
+      const frame = (x: number, y: number, w: number, h: number) => {
+        ctx.fillStyle = '#2a2f36';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fillRect(x, y, Math.min(w, px(1)), h);
+      };
+      for (let k = 0; k < 3; k++) frame(k * panelW, 0, mull, SIZE);
+      frame(0, 0, SIZE, mull);                              // head transom (covers the seam)
+      frame(0, transY, SIZE, mull);
+      for (let k = 0; k < 3; k++) {
+        ao(ctx, k * panelW + mull, 0, px(6), transY, 'right', 0.3);
+      }
+      ao(ctx, 0, mull, SIZE, px(6), 'down', 0.3);
+      break;
+    }
+    case 'DECOR_BLDBRICK': { // brick at real scale, one window per storey
+      const M = SIZE / 4;
+      const base = hexRgb(hex) as RGB;
+      ctx.fillStyle = '#b7ab98';                            // mortar
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const rows = 52, cols = 17;                           // 77 mm courses, 235 mm bricks
+      const rh = SIZE / rows, bw = SIZE / cols, gap = px(0.8);
+      const brick = (x: number, y: number, w: number, h: number) => {
+        const k = 0.8 + Math.random() * 0.36;
+        const warm = Math.random() * 14;
+        ctx.fillStyle = `rgb(${Math.round(base[0] * k + warm)},${Math.round(base[1] * k)},${Math.round(base[2] * k - warm * 0.4)})`;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';                 // recessed joint shades the top
+        ctx.fillRect(x, y, w, px(0.8));
+      };
+      for (let r = 0; r < rows; r++) {
+        const off = r % 2 ? bw / 2 : 0;
+        for (let c = -1; c <= cols; c++) {
+          brick(c * bw + off + gap, r * rh + gap, bw - gap * 2, rh - gap * 2);
+        }
+      }
+      speckle(ctx, dens(260), [0.4, 1.3], 0.08, false);
+      // window 1.2 m x 1.6 m with a soldier-course head and a stone sill
+      const ww = 1.2 * M, wh = 1.6 * M, x0 = (SIZE - ww) / 2, y0 = 0.62 * M, y1 = y0 + wh;
+      const soldier = 0.225 * M;
+      for (let x = x0 - px(4); x < x0 + ww + px(4); x += rh) {
+        brick(x + gap, y0 - soldier + gap, rh - gap * 2, soldier - gap * 2);
+      }
+      ctx.fillStyle = '#e9e6dd';                            // painted timber frame
+      ctx.fillRect(x0, y0, ww, wh);
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, '#93a8b8'); g.addColorStop(0.5, '#56697a'); g.addColorStop(1, '#27313a');
+      ctx.fillStyle = g;
+      const fr = px(6);
+      ctx.fillRect(x0 + fr, y0 + fr, ww - fr * 2, wh - fr * 2);
+      ctx.fillStyle = '#e9e6dd';                            // glazing bars, 2x2 panes
+      ctx.fillRect(x0 + ww / 2 - px(2), y0, px(4), wh);
+      ctx.fillRect(x0, y0 + wh / 2 - px(2), ww, px(4));
+      ao(ctx, x0, y0, ww, px(12), 'down', 0.5);
+      ao(ctx, x0, y0, px(8), wh, 'right', 0.3);
+      ctx.fillStyle = '#d4cfc3';                            // stone sill
+      ctx.fillRect(x0 - px(8), y1, ww + px(16), px(7));
+      ao(ctx, x0 - px(8), y1 + px(7), ww + px(16), px(10), 'down', 0.45);
+      for (let k = 0; k < 5; k++) {
+        const sx = x0 + Math.random() * ww;
+        const g2 = ctx.createLinearGradient(0, y1 + px(7), 0, SIZE);
+        g2.addColorStop(0, 'rgba(30,26,22,0.18)'); g2.addColorStop(1, 'rgba(30,26,22,0)');
+        ctx.fillStyle = g2;
+        ctx.fillRect(sx, y1 + px(7), px(2) + Math.random() * px(6), SIZE - y1);
       }
       break;
     }
-    case 'DECOR_BLDHANGAR': { // corrugated metal shed
-      grain(ctx, 5);
-      for (let x = 0; x < SIZE; x += 12) { // vertical corrugation
-        ctx.fillStyle = 'rgba(255,255,255,0.16)';
-        ctx.fillRect(x, 0, 4, SIZE);
-        ctx.fillStyle = 'rgba(0,0,0,0.16)';
-        ctx.fillRect(x + 6, 0, 4, SIZE);
+    case 'DECOR_BLDHANGAR': { // corrugated steel cladding
+      const base = hexRgb(hex) as RGB;
+      const pitch = SIZE / 52;                              // ~77 mm corrugation
+      for (let x = 0; x < SIZE; x++) {
+        // a sine profile lit from one side: the near flank bright, the far dark
+        const ph = (x / pitch) % 1;
+        const k = 0.9 + 0.24 * Math.cos(ph * Math.PI * 2);
+        ctx.fillStyle = shade(base, k);
+        ctx.fillRect(x, 0, 1, SIZE);
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.30)'; // panel seams
-      for (let y = 0; y < SIZE; y += 84) ctx.fillRect(0, y, SIZE, 3);
+      speckle(ctx, dens(320), [0.4, 1.8], 0.07, true);     // galvanised mottle
+      // horizontal sheet lap with its fixings
+      const lapY = SIZE * 0.3;
+      ctx.fillStyle = 'rgba(0,0,0,0.42)';
+      ctx.fillRect(0, lapY, SIZE, px(2));
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(0, lapY - px(1.5), SIZE, px(1.5));
+      ao(ctx, 0, lapY + px(2), SIZE, px(7), 'down', 0.32);
+      for (let x = pitch / 2; x < SIZE; x += pitch * 2) {
+        bolt(ctx, x, lapY + px(5), px(1.8));
+        if (Math.random() < 0.45) {                         // rust bleeding off a fixing
+          const g = ctx.createLinearGradient(0, lapY + px(6), 0, lapY + px(6) + SIZE * 0.25);
+          g.addColorStop(0, 'rgba(120,64,28,0.32)'); g.addColorStop(1, 'rgba(120,64,28,0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(x - px(1), lapY + px(6), px(2.5), SIZE * 0.25);
+        }
+      }
+      streaks(ctx, dens(22), 0, SIZE, 0.08);
+      break;
+    }
+    case 'DECOR_ROOF':
+    case 'DECOR_STANDROOF': {
+      // Single-ply roofing membrane, planar at one tile per 6 m: laps every
+      // metre, ponding where water sits, dust blown into the corners.
+      const base = hexRgb(hex) as RGB;
+      grain(ctx, 6);
+      const sheet = SIZE / 6;
+      for (let x = 0; x < SIZE; x += sheet) {
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(x, 0, px(1.5), SIZE);
+        ao(ctx, x + px(1.5), 0, px(5), SIZE, 'right', 0.25);
+      }
+      for (let i = 0; i < dens(5); i++) {                   // ponding stains
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(14 + Math.random() * 30);
+        const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+        g.addColorStop(0, shade(base, 0.72, 0.42));
+        g.addColorStop(1, shade(base, 0.72, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+      speckle(ctx, dens(240), [0.4, 1.5], 0.1, true);       // dust and grit
       break;
     }
     case 'DECOR_PITBLDG': {
@@ -758,16 +918,23 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       // top — the thing a driver actually picks out at the edge of a run-off.
       // The previous version was one translucent stripe on flat orange, which on
       // a post barely read as a texture at all.
-      const base = Math.round(SIZE * 0.14);
-      ctx.fillStyle = '#2b2b2e';                       // dirty concrete foot
-      ctx.fillRect(0, SIZE - base, SIZE, base);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';              // shadow where it meets
-      ctx.fillRect(0, SIZE - base - px(3), SIZE, px(3));
-      // vertical shading so the round post doesn't look like a flat card
+      // The post is a box whose four faces each take a QUARTER of U (emitBox
+      // maps face i to i/4..(i+1)/4). The shading used to be one sine across
+      // the whole width, so two faces came out dark and two bright whichever
+      // way the sun was. Now each quarter is its own face with rounded edges.
       for (let x = 0; x < SIZE; x++) {
-        const k = Math.sin((x / SIZE) * Math.PI);       // bright in the middle
-        ctx.fillStyle = `rgba(0,0,0,${(0.34 * (1 - k)).toFixed(3)})`;
-        ctx.fillRect(x, 0, 1, SIZE - base);
+        const ph = ((x / SIZE) * 4) % 1;
+        const k = Math.sin(ph * Math.PI);
+        ctx.fillStyle = `rgba(0,0,0,${(0.3 * (1 - k)).toFixed(3)})`;
+        ctx.fillRect(x, 0, 1, SIZE);
+      }
+      // Mud and spray thrown up from the run-off, heaviest at the foot,
+      // instead of a hard-edged grey band painted round the bottom.
+      vgrad(ctx, SIZE * 0.72, SIZE, [[0, 'rgba(46,38,30,0)'], [0.6, 'rgba(46,38,30,0.45)'], [1, 'rgba(32,26,20,0.85)']]);
+      for (let i = 0; i < dens(40); i++) {
+        const y = SIZE - Math.pow(Math.random(), 2) * SIZE * 0.4;
+        ctx.fillStyle = `rgba(42,34,26,${0.2 + Math.random() * 0.4})`;
+        ctx.beginPath(); ctx.arc(Math.random() * SIZE, y, px(0.6) + Math.random() * px(1.6), 0, Math.PI * 2); ctx.fill();
       }
       // two reflective bands
       for (const fy of [0.18, 0.34]) {
@@ -902,8 +1069,32 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_GANTRY': {
-      grain(ctx, 5);
-      speckle(ctx, 200, [0.4, 1.0], 0.08, false);
+      // Painted structural steel at one tile per 4 m: a bolted splice plate
+      // every 2 m, rust weeping from the bolts, the paint chalking with age.
+      // The beam samples the bottom 0.8 m of this tile, the posts all of it.
+      const steel = hexRgb(hex) as RGB;
+      grain(ctx, 4);
+      speckle(ctx, dens(140), [0.5, 1.8], 0.06, false);
+      for (let x = SIZE * 0.25; x < SIZE; x += SIZE / 2) {
+        const pw = px(30), x0 = x - pw / 2;
+        ctx.fillStyle = shade(steel, 1.06);                 // plate stands proud
+        ctx.fillRect(x0, 0, pw, SIZE);
+        ao(ctx, x0 + pw, 0, px(6), SIZE, 'right', 0.38);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fillRect(x0, 0, px(1.2), SIZE);
+        for (let y = px(10); y < SIZE; y += px(22)) {
+          for (const bx of [x0 + pw * 0.3, x0 + pw * 0.7]) {
+            bolt(ctx, bx, y, px(2.6));
+            if (Math.random() < 0.22) {
+              const g = ctx.createLinearGradient(0, y, 0, y + px(40));
+              g.addColorStop(0, 'rgba(118,62,26,0.38)'); g.addColorStop(1, 'rgba(118,62,26,0)');
+              ctx.fillStyle = g;
+              ctx.fillRect(bx - px(1), y + px(2), px(2.2), px(40));
+            }
+          }
+        }
+      }
+      streaks(ctx, dens(16), 0, SIZE, 0.07);
       break;
     }
     case 'DECOR_LIGHTS': {
@@ -1017,23 +1208,68 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       break;
     }
     case 'DECOR_TREE': {
-      // Mottled foliage: clumps of light/dark leaves. Per-tree vertex colours
-      // tint this, so one texture covers a whole varied treeline.
-      grain(ctx, 12);
-      const [r, g, b] = hexRgb(hex);
-      for (let i = 0; i < dens(1500); i++) {
-        const d = -40 + Math.random() * 80;
-        ctx.fillStyle = `rgba(${r + d},${g + d},${b + d * 0.6},0.75)`;
-        ctx.beginPath();
-        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, px(1 + Math.random() * 3.5), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      for (let i = 0; i < dens(14); i++) { // shadowed gaps between leaf clusters
-        ctx.fillStyle = 'rgba(0,0,0,0.16)';
-        ctx.beginPath();
-        ctx.arc(Math.random() * SIZE, Math.random() * SIZE, px(6 + Math.random() * 14), 0, Math.PI * 2);
-        ctx.fill();
-      }
+      // An ATLAS, laid out by TREE_ATLAS in geometry/decor.ts: bark plus three
+      // foliage tones. It used to be one foliage texture tinted per tree by
+      // vertex colour, but the game never receives vertex colours, so every
+      // tree was identical - and the trunks, which were only brown by vertex
+      // colour, rendered as leaves.
+      const rect = (r: readonly [number, number, number, number]) =>
+        [r[0] * SIZE, (1 - r[3]) * SIZE, (r[2] - r[0]) * SIZE, (r[3] - r[1]) * SIZE] as const;
+      const inRegion = (r: readonly [number, number, number, number], draw: (x: number, y: number, w: number, h: number) => void) => {
+        const [x, y, w, h] = rect(r);
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+        draw(x, y, w, h);
+        ctx.restore();
+      };
+
+      // BARK: vertical fissures over ridges, lichen creeping up from the root.
+      inRegion(TREE_ATLAS.bark, (x, y, w, h) => {
+        ctx.fillStyle = '#4e3a2a';
+        ctx.fillRect(x, y, w, h);
+        for (let i = 0; i < dens(120); i++) {
+          let fx = x + Math.random() * w;
+          const fw = px(0.8) + Math.random() * px(2.6);
+          ctx.fillStyle = Math.random() < 0.55 ? 'rgba(20,14,10,0.55)' : 'rgba(120,96,72,0.4)';
+          for (let fy = y; fy < y + h; fy += px(3)) {        // wandering, not ruled
+            fx += (Math.random() - 0.5) * px(1.6);
+            ctx.fillRect(fx, fy, fw, px(3.4));
+          }
+        }
+        for (let i = 0; i < dens(30); i++) {                // cross-cracks
+          ctx.fillStyle = 'rgba(15,10,8,0.5)';
+          ctx.fillRect(x + Math.random() * w, y + Math.random() * h, px(3) + Math.random() * px(9), px(0.8));
+        }
+        vgrad(ctx, y + h * 0.7, y + h, [[0, 'rgba(96,112,72,0)'], [1, 'rgba(96,112,72,0.45)']]);
+      });
+
+      // FOLIAGE: clumps of leaves over dark gaps. Each clump is lit from above
+      // and shadowed underneath, and the whole region darkens toward its foot,
+      // which is the bottom of whichever canopy tier samples it.
+      const leaves = (r: readonly [number, number, number, number], gap: RGB, leaf: RGB) =>
+        inRegion(r, (x, y, w, h) => {
+          ctx.fillStyle = shade(gap, 1);
+          ctx.fillRect(x, y, w, h);
+          for (let c = 0; c < dens(26); c++) {
+            const cx = x + Math.random() * w, cy = y + Math.random() * h;
+            const cr = px(10) + Math.random() * px(16);
+            for (let i = 0; i < 70; i++) {
+              const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * cr;
+              const lx = cx + Math.cos(a) * d, ly = cy + Math.sin(a) * d;
+              const lit = 0.62 + 0.62 * Math.max(0, (cy - ly) / cr + 0.5);  // top of clump lit
+              const k = lit * (0.85 + Math.random() * 0.3);
+              ctx.fillStyle = shade(leaf, k, 0.9);
+              ctx.beginPath();
+              ctx.ellipse(lx, ly, px(1.4) + Math.random() * px(1.8), px(0.9) + Math.random() * px(1.2),
+                Math.random() * Math.PI, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+          vgrad(ctx, y, y + h, [[0, 'rgba(255,255,230,0.06)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.2)']]);
+        });
+      leaves(TREE_ATLAS.leafA, [40, 58, 26], [108, 146, 62]);
+      leaves(TREE_ATLAS.leafB, [30, 46, 22], [78, 112, 48]);
+      leaves(TREE_ATLAS.leafC, [18, 32, 22], [50, 82, 50]);
       break;
     }
     case 'DECOR_POLE': {

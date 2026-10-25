@@ -59,7 +59,8 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_PITSIGN') return '#f4f4f2';
   if (name === 'DECOR_GANTRY') return '#b9bcc2';
   if (name === 'DECOR_LIGHTS') return '#111318';
-  if (name === 'DECOR_TREE') return '#4a6b32'; // foliage base (vertex colours vary each tree)
+  if (name === 'DECOR_TREE') return '#4a6b32'; // atlas: bark + three foliage tones
+  if (name === 'DECOR_ROOF' || name === 'DECOR_STANDROOF') return '#4a4d53'; // roofing membrane
   if (name === 'DECOR_GRASSTUFT') return pal.grass ?? '#4f7a34'; // grass cards
   if (name === 'DECOR_MAST') return '#9aa0a8'; // floodlight pole
   if (name === 'DECOR_LAMP') return '#fff8e6'; // lamp head (reads as lit)
