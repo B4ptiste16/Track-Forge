@@ -28,6 +28,16 @@ export function hex01(hex: string): Vec3 {
   ];
 }
 
+// THE KERB END SHAPE, shared by the kerb geometry and by everything laid
+// against it, so the two can never disagree. A kerb starts as a point on the
+// track edge and reaches full width as far along as it is wide: a 45-degree,
+// two-equal-sides right triangle. It used to taper over a fixed 5 m whatever
+// the width - a 1.2 m kerb crept out at 13 degrees, a long thin sliver.
+export function kerbTaper(d: number, d0: number, d1: number, full: number): number {
+  const L = Math.max(0.05, full);
+  return Math.max(0, Math.min(1, (d - d0) / L, (d1 - d) / L));
+}
+
 export interface KerbSample {
   left: KerbType;
   right: KerbType;
@@ -121,7 +131,7 @@ export function computeKerbInfo(
         const full = w > 0 ? w : shape.width;
         for (let k = i; k < j; k++) {
           const d = samples[k].dist;
-          const taper = Math.max(0, Math.min(1, (d - d0) / END_TAPER, (d1 - d) / END_TAPER));
+          const taper = kerbTaper(d, d0, d1, full);
           if (side === 'left') info[k].leftEff = full * taper;
           else info[k].rightEff = full * taper;
         }
@@ -231,9 +241,6 @@ function emitStrip(
 }
 
 // Emit a strip of the kerb over columns [cFrom, cTo] into `mesh`.
-// The ends TAPER: the kerb starts as a point at the track edge and widens like
-// a triangle to full width over ~END_TAPER metres (and narrows again at the end).
-const END_TAPER = 5.0;
 
 function emitSub(
   mesh: MeshData,
@@ -259,8 +266,8 @@ function emitSub(
     const color = stripe ? stripe[Math.floor(s.dist / STRIPE_LEN) % stripe.length] : null;
     // one full texture cycle (all stripes) per pattern repeat along the kerb
     const u = stripe ? s.dist / (STRIPE_LEN * stripe.length) : 0;
-    // pointy ends: 0 width at the very start/end, full width END_TAPER m in
-    const taper = Math.max(0, Math.min(1, (s.dist - d0) / END_TAPER, (d1 - s.dist) / END_TAPER));
+    // pointy ends: 0 width at the very start/end, full width one kerb-width in
+    const taper = kerbTaper(s.dist, d0, d1, shape.width * scale);
     for (let c = cFrom; c <= cTo; c++) {
       const t = c / shape.cols;
       const off = t * shape.width * scale * sign * taper;
@@ -309,4 +316,44 @@ function emitSub(
   };
   if (cFrom === 0) edgeSkirt(cFrom, -1);        // track-facing edge
   if (cTo === shape.cols) edgeSkirt(cTo, 1);    // verge-facing edge
+}
+
+// The distances at which a kerb's outline turns a corner: full width reached
+// at the start, and left at the end. The centreline is sampled every ~3 m but a
+// 45-degree taper on a 1.2 m kerb is only 1.2 m long, so without a sample at
+// these corners the outline would be interpolated straight across them - and
+// the grass edge, interpolated across the same samples, would agree with that
+// wrong outline rather than with the kerb. The build inserts a sample at each,
+// so the kerb, the grass and the run-off all share the true corner.
+export function kerbTaperBreaks(
+  samples: CenterlineSample[],
+  spans: SegmentSpan[],
+  corners: CornerConfig[],
+  defaultKerb: KerbType,
+): number[] {
+  const info = computeKerbInfo(samples, spans, corners, defaultKerb);
+  const out: number[] = [];
+  for (const side of ['left', 'right'] as const) {
+    let i = 0;
+    while (i < samples.length) {
+      const profile = info[i][side];
+      if (profile === 'none') { i++; continue; }
+      const w = side === 'left' ? info[i].leftW : info[i].rightW;
+      let j = i + 1;
+      while (
+        j < samples.length &&
+        info[j][side] === profile &&
+        (side === 'left' ? info[j].leftW : info[j].rightW) === w
+      ) j++;
+      const shape = kerbShape(profile);
+      if (shape && j - i >= 2) {
+        const d0 = samples[i].dist, d1 = samples[j - 1].dist;
+        const L = Math.max(0.05, w > 0 ? w : shape.width);
+        if (d1 - d0 > 2 * L) out.push(d0 + L, d1 - L);
+        else out.push((d0 + d1) / 2);          // too short for two: one apex
+      }
+      i = j;
+    }
+  }
+  return out;
 }

@@ -127,3 +127,45 @@ export function computeClosure(samples: CenterlineSample[]): ClosureInfo {
 export function countCorners(segments: Segment[]): number {
   return segments.filter((s) => s.kind === 'corner').length;
 }
+
+// Insert centreline samples at the given distances, interpolated along the
+// path. Position is advanced along the CHORD of a constant-curvature arc
+// (direction = mean of the two headings), so a sample inserted in a corner
+// lies on the curve rather than cutting across it as a straight lerp would.
+// Distances already within 5 cm of a sample are skipped. Returns how many
+// were added. Must run before anything derives per-sample data.
+export function insertSamples(samples: CenterlineSample[], spans: SegmentSpan[], dists: number[]): number {
+  // No rounding: snapping to the millimetre put about half the samples up to
+  // 0.5 mm short of the corner they were inserted for, where the kerb is at
+  // 99.95% width - so full width only arrived at the NEXT sample, 3 m on.
+  // The 5 cm proximity check below already de-duplicates.
+  const want = [...dists].sort((a, b) => a - b);
+  let added = 0;
+  for (const d of want) {
+    let lo = 0, hi = samples.length - 1;
+    if (d <= samples[lo].dist || d >= samples[hi].dist) continue;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (samples[mid].dist <= d) lo = mid; else hi = mid;
+    }
+    const a = samples[lo], b = samples[hi];
+    if (d - a.dist < 0.05 || b.dist - d < 0.05) continue;
+    const t = (d - a.dist) / (b.dist - a.dist);
+    let dh = b.heading - a.heading;
+    while (dh > Math.PI) dh -= 2 * Math.PI;
+    while (dh < -Math.PI) dh += 2 * Math.PI;
+    const turn = dh * t;
+    const L = d - a.dist;
+    const chord = Math.abs(turn) > 1e-6 ? (L * Math.sin(turn / 2)) / (turn / 2) : L;
+    const hm = a.heading + turn / 2;
+    const span = spans.find((s) => d >= s.startDist && d < s.endDist);
+    samples.splice(hi, 0, {
+      pos: [a.pos[0] + Math.cos(hm) * chord, a.pos[1] + Math.sin(hm) * chord, a.pos[2] + (b.pos[2] - a.pos[2]) * t],
+      heading: a.heading + turn,
+      dist: d,
+      segIndex: span ? span.segIndex : a.segIndex,
+    });
+    added++;
+  }
+  return added;
+}

@@ -1,6 +1,6 @@
 import type { TrackProject, StripCfg, RunoffType } from '../types';
 import type { BuiltTrack, MeshData } from './types';
-import { buildCenterline, computeClosure } from './centerline';
+import { buildCenterline, computeClosure, insertSamples } from './centerline';
 import { makeHeightFn, smoothHeights } from './elevation';
 
 // Every metre of track gets SOME run-off and a barrier behind it — a stretch
@@ -10,7 +10,7 @@ import { detectOverlaps, makeBridgeHeightFn } from './bridges';
 import { perpLeft } from './frames';
 import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
-import { computeKerbInfo, buildKerbs, KERB_PATTERNS } from './kerbs';
+import { computeKerbInfo, buildKerbs, KERB_PATTERNS, kerbTaperBreaks } from './kerbs';
 import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel, GARAGE_DEPTH } from './pitlane';
 import { buildBuildings } from './buildings';
 import { autoAdverts, buildProps } from './props';
@@ -62,6 +62,17 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   for (let i = 0; i < samples.length; i++) {
     samples[i].pos[2] = smoothH[i] + bridgeH(samples[i].dist);
   }
+
+  // A sample at every corner of every kerb's end taper, so the kerb, the grass
+  // edge and the run-off are all built from the same outline (kerbTaperBreaks).
+  // Inserted AFTER elevation, with heights interpolated from the finished
+  // profile: smoothHeights sizes its window in samples from totalLength / n, so
+  // inserting before it changed n and moved the whole profile - up to 65 cm on
+  // hexagone. Inserted here, every original sample keeps its exact height.
+  // Nothing before this point holds sample indices: overlaps and the bridge
+  // ramp are keyed by distance.
+  insertSamples(samples, spans,
+    kerbTaperBreaks(samples, spans, project.corners, project.road.defaultKerb));
 
   const kerbInfo = computeKerbInfo(samples, spans, project.corners, project.road.defaultKerb);
   const pitInfo = computePitInfo(samples, project);
