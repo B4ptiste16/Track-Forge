@@ -49,6 +49,15 @@ ARCHITECTURE — the geometry engine is the single source of truth:
                       buildings.ts.
 - src/export/ai.ts    genFastLaneAi() — rotates spline so point 0 = start/finish
                       line (fixes phantom ~3s laps + bot progress origin).
+                      Since v0.59.0 it writes a real RACING LINE: 2 m
+                      stations, lateral offsets minimising integral of
+                      curvature^2 (weighted 1/h^3 per station - unweighted,
+                      bunched inside stations made hairpin apexes kink to
+                      R~5 m), |offset| <= width/2 - 1.2 m, projected
+                      Gauss-Seidel coarse-to-fine (32 m -> 2 m). Speed,
+                      radius, forward and side_left/right are all computed
+                      ON THE LINE (sides = line-to-edge distances). AC-RL's
+                      pilot laps it 7-10% faster than the old centreline line.
 - src/components/     App.tsx (tabbed right panel: Track/Kerbs/Trackside/
                       Pit & Buildings + layout save/switch toolbar),
                       TracksidePanel, FacilitiesPanel, SegmentEditor2D
