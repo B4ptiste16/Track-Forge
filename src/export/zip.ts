@@ -1,18 +1,31 @@
 import JSZip from 'jszip';
 import type { TrackProject } from '../types';
 import { slugify } from '../state/project';
-import { buildFileMap, type TrackFile } from './files';
+import { buildFileMap, drivePackage, type BuildOptions, type TrackFile } from './files';
 
-// Assemble the export .zip from the shared file map (browser download path).
-export async function buildPackage(project: TrackProject): Promise<{ blob: Blob; slug: string }> {
-  const { slug, files } = buildFileMap(project);
+// The drag-and-drop track package. Laid out as content/tracks/<slug>/..., the
+// layout of the game folder itself, so the same zip installs by dropping it on
+// Content Manager AND by extracting it straight into the Assetto Corsa folder.
+// Holds the KN5 and everything else AC reads - nothing left to compile.
+export async function buildTrackZip(
+  project: TrackProject,
+  opts: BuildOptions = {},
+): Promise<{ bytes: Uint8Array; slug: string; missingTextures: string[] }> {
+  const { slug, files, missingTextures } = buildFileMap(project, undefined, opts);
   const zip = new JSZip();
-  for (const f of files) {
-    if (f.text !== undefined) zip.file(f.path, f.text);
-    else if (f.bytes) zip.file(f.path, f.bytes);
+  const root = `content/tracks/${slug}/`;
+  for (const f of drivePackage(files)) {
+    if (f.text !== undefined) zip.file(root + f.path, f.text);
+    else if (f.bytes) zip.file(root + f.path, f.bytes);
   }
-  const blob = await zip.generateAsync({ type: 'blob' });
-  return { blob, slug };
+  const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  return { bytes, slug, missingTextures };
+}
+
+// Browser download path: the same package as a Blob.
+export async function buildPackage(project: TrackProject): Promise<{ blob: Blob; slug: string }> {
+  const { bytes, slug } = await buildTrackZip(project);
+  return { blob: new Blob([new Uint8Array(bytes)], { type: 'application/zip' }), slug };
 }
 
 export function triggerDownload(blob: Blob, filename: string): void {

@@ -62,7 +62,7 @@ function basisToEulerXYZ(m: number[][]): Vec3 {
   return [rx * d, ry * d, rz * d];
 }
 
-function computeVertexNormals(mesh: MeshData): Vec3[] {
+export function computeVertexNormals(mesh: MeshData): Vec3[] {
   const n: Vec3[] = mesh.vertices.map(() => [0, 0, 0]);
   for (const f of mesh.faces) {
     const a = mesh.vertices[f[0]], b = mesh.vertices[f[1]], c = mesh.vertices[f[2]];
@@ -98,7 +98,7 @@ export function baseSurfaceName(name: string): string {
 /** Split a mesh whose vertex count exceeds what a KN5 mesh can index. Faces are
  *  kept whole and vertices are re-indexed per part, so each part is a valid
  *  standalone mesh. Meshes under the limit are returned untouched. */
-function splitForKn5(mesh: MeshData): MeshData[] {
+export function splitForKn5(mesh: MeshData): MeshData[] {
   if (mesh.vertices.length <= KN5_VERT_LIMIT) return [mesh];
   const parts: MeshData[] = [];
   let cur: MeshData | null = null;

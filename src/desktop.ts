@@ -21,8 +21,10 @@ export interface DesktopApi {
     slug: string,
     files: DesktopFile[],
   ): Promise<{ ok: boolean; root: string; fbxPath?: string | null; error?: string }>;
-  openInKsEditor(ksPath: string, fbxPath: string): Promise<{ ok: boolean; error?: string }>;
+  getPropTextures(): Promise<{ ok: boolean; textures: Record<string, Uint8Array> }>;
+  saveZip(defaultPath: string, bytes: Uint8Array): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
   openPath(p: string): Promise<void>;
+  showItem(p: string): Promise<void>;
   showMessage(type: 'info' | 'error' | 'warning', message: string): Promise<void>;
   confirm(message: string, detail?: string, buttons?: string[]): Promise<number>;
   getVersion(): Promise<string>;

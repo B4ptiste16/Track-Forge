@@ -244,10 +244,14 @@ function texturePackOverride(relPath) {
 // track actually uses — scanning the FBX for the DECOR_P_* mesh names it wrote —
 // so a circuit with two marshal posts doesn't drag in 10 MB of grandstand and
 // tractor sheets it never references.
-function copyPropTextures(root, fbxText) {
-  const dir = app.isPackaged
+function propTexturesDir() {
+  return app.isPackaged
     ? path.join(process.resourcesPath, 'prop_textures')
     : path.join(__dirname, '..', 'build', 'prop_textures');
+}
+
+function copyPropTextures(root, fbxText) {
+  const dir = propTexturesDir();
   const mapFile = path.join(dir, '_map.json');
   if (!fs.existsSync(mapFile)) return [];
   let map;
@@ -310,22 +314,44 @@ ipcMain.handle('track:write', async (_e, { baseDir, slug, files }) => {
   }
 });
 
-ipcMain.handle('kseditor:open', async (_e, { ksPath, fbxPath }) => {
-  if (!ksPath || !fs.existsSync(ksPath)) return { ok: false, error: 'Set a valid KsEditor.exe path first.' };
-  if (!fbxPath || !fs.existsSync(fbxPath)) return { ok: false, error: 'Export the track first.' };
+// Every prop-pack texture's bytes, by file name. The KN5 is written in the
+// renderer and has to EMBED these, but they ship as files beside the app.
+ipcMain.handle('props:textures', () => {
+  const dir = propTexturesDir();
+  const out = {};
   try {
-    // KsEditor needs to start in its own folder (it loads cfg/system relative
-    // to the cwd) and does not accept a file argument — the user does
-    // File → Import FBX, where our .fbx.ini pre-assigns all materials.
-    spawn(ksPath, [], { cwd: path.dirname(ksPath), detached: true, stdio: 'ignore' }).unref();
-    return { ok: true };
+    const map = JSON.parse(fs.readFileSync(path.join(dir, '_map.json'), 'utf8'));
+    for (const tex of new Set(Object.values(map))) {
+      const src = path.join(dir, tex);
+      if (fs.existsSync(src)) out[tex] = fs.readFileSync(src);
+    }
+  } catch { /* no pack: props embed without their textures rather than failing */ }
+  return { ok: true, textures: out };
+});
+
+// Save the drag-and-drop track package (.zip) wherever the user chooses.
+ipcMain.handle('track:saveZip', async (e, { defaultPath, bytes }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Export track',
+    defaultPath: defaultPath || undefined,
+    buttonLabel: 'Export',
+    filters: [{ name: 'Track package', extensions: ['zip'] }],
+  });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+  try {
+    fs.writeFileSync(r.filePath, Buffer.from(bytes));
+    return { ok: true, path: r.filePath };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: String((err && err.message) || err), path: r.filePath };
   }
 });
 
 ipcMain.handle('shell:openPath', async (_e, p) => {
   if (p) await shell.openPath(p);
+});
+ipcMain.handle('shell:showItem', async (_e, p) => {
+  if (p) shell.showItemInFolder(p);
 });
 
 ipcMain.handle('dialog:message', async (e, { type, message }) => {

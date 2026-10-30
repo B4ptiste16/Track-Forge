@@ -1,14 +1,13 @@
 import type { TrackProject } from '../types';
 import { buildTrack } from '../geometry';
 import { slugify, THEME_PALETTES } from '../state/project';
-import { genBlenderScript } from './blenderScript';
 import { genFbx } from './fbx';
+import { genKn5 } from './kn5';
 import { genSurfacesIni } from './surfaces';
 import { genExtConfig, genGrassFx, genLightingIni } from './lighting';
 import { genTrackMap } from './trackMap';
 import { genCamerasIni } from './cameras';
 import { genUiTrack } from './uiTrack';
-import { genInstructions } from './instructions';
 import { genTextures } from './textures';
 import { genKsPersistence } from './ksPersistence';
 import { genFastLaneAi, genPitLaneAi } from './ai';
@@ -20,12 +19,25 @@ export interface TrackFile {
   bytes?: Uint8Array;
 }
 
+export interface BuildOptions {
+  /** Bytes for textures a material samples beyond the generated ones - prop
+   *  pack files, and texture-pack overrides - by file name. Embedded in the KN5. */
+  extraTextures?: Record<string, Uint8Array>;
+}
+
 // Build every file that makes up the exported track. Shared by the browser
 // (zips them for download) and the desktop app (writes them straight to disk).
-export function buildFileMap(project: TrackProject, slugOverride?: string): { slug: string; files: TrackFile[] } {
+export function buildFileMap(
+  project: TrackProject,
+  slugOverride?: string,
+  opts: BuildOptions = {},
+): { slug: string; files: TrackFile[]; missingTextures: string[] } {
   const slug = slugOverride ? slugify(slugOverride) : slugify(project.meta.name);
   const built = buildTrack(project);
   const textures = genTextures(built, THEME_PALETTES[project.meta.theme], project.meta.theme, project.walls.style);
+  // The model AC loads, written directly - no KsEditor step. AC loads
+  // <folder>/<folder>.kn5, so it is named after the slug.
+  const kn5 = genKn5(built, textures, opts.extraTextures ?? {}, slug);
   const fbxText = genFbx(project, built);
   const aiLine = genFastLaneAi(built, project.road.width, project.startFinishDist);
   const pitLane = genPitLaneAi(built, project);
@@ -39,8 +51,11 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
   ].filter(Boolean).join('\n');
 
   const files: TrackFile[] = [
+    { path: `${slug}.kn5`, bytes: kn5.bytes },
+    // The editable source, for folder exports only: anyone who wants to work on
+    // the model in KsEditor still can, and this persistence file pre-assigns
+    // every material when they import the FBX. Not part of the drive package.
     { path: `${slug}.fbx`, text: fbxText },
-    // KsEditor auto-loads this on Import FBX → all materials pre-assigned.
     { path: `${slug}.fbx.ini`, text: genKsPersistence(slug, fbxText, built, textures) },
     { path: 'data/surfaces.ini', text: genSurfacesIni() },
     { path: 'data/lighting.ini', text: genLightingIni() },
@@ -57,14 +72,19 @@ export function buildFileMap(project: TrackProject, slugOverride?: string): { sl
     // is inert without CSP and lights the circuit properly once it's installed.
     ...(ext ? [{ path: 'extension/ext_config.ini', text: ext }] : []),
     { path: 'ui/ui_track.json', text: genUiTrack(project, built) },
-    { path: 'INSTRUCTIONS.md', text: genInstructions(project, built, slug, textures) },
     // AI racing line — AC's opponents + the "ideal line" app work out of the box.
     ...(aiLine.length ? [{ path: 'ai/fast_lane.ai', bytes: aiLine }] : [{ path: 'ai/.gitkeep', text: '' }]),
     // Pit-lane spline — AC recognises the pit lane + applies its speed limiter.
     ...(pitLane.length ? [{ path: 'ai/pit_lane.ai', bytes: pitLane }] : []),
-    { path: 'blender_fallback/build_track.py', text: genBlenderScript(project, built, slug) },
     { path: `${slug}.acforge.json`, text: JSON.stringify(project, null, 2) },
     ...textures.map((t) => ({ path: t.path, bytes: t.bytes })),
   ];
-  return { slug, files };
+  return { slug, files, missingTextures: kn5.missingTextures };
+}
+
+// What goes in the drag-and-drop package: everything AC needs to load and
+// drive the track, nothing that only matters for editing it. The textures are
+// inside the KN5, so the loose copies and the FBX source stay out.
+export function drivePackage(files: TrackFile[]): TrackFile[] {
+  return files.filter((f) => !/\.fbx(\.ini)?$/i.test(f.path) && !f.path.startsWith('texture/'));
 }

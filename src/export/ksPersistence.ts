@@ -89,22 +89,48 @@ const EMISSIVE: Record<string, [number, number, number]> = {
   mat_DECOR_LIGHTS: [1.6, 1.5, 1.45],  // start-light housing
 };
 
-function materialBlock(idx: number, name: string, texture: string): string {
+// The material for a mesh, as both exporters write it: the ksEditor
+// persistence file (for the FBX route) and the KN5 written directly. One
+// definition, so the two can never disagree.
+export interface MaterialSpec {
+  shader: string;
+  alphaTested: boolean;
+  // [name, float1, float3] — emissive is an RGB, everything else a scalar.
+  vars: [string, number, [number, number, number]?][];
+}
+
+export function materialSpec(name: string): MaterialSpec {
   // ksAmbient/ksDiffuse tuned for tracks; the rest mirrors ksEditor defaults.
   const cutout = ALPHA_TESTED.has(name);
   const glow = EMISSIVE[name];
-  // [name, float1, float3] — emissive is an RGB, everything else a scalar.
-  const vars: [string, number, [number, number, number]?][] = [
-    ['ksAmbient', glow ? 0.9 : 0.4], ['ksDiffuse', glow ? 0.2 : 0.6],
-    ['ksSpecular', cutout ? 0.05 : 0.2], ['ksSpecularEXP', 12],
-    ['ksEmissive', 0, glow ?? [0, 0, 0]], ['ksAlphaRef', cutout ? 0.35 : 0],
-  ];
+  return {
+    shader: cutout ? 'ksPerPixelAT' : 'ksPerPixel',
+    alphaTested: cutout,
+    vars: [
+      ['ksAmbient', glow ? 0.9 : 0.4], ['ksDiffuse', glow ? 0.2 : 0.6],
+      ['ksSpecular', cutout ? 0.05 : 0.2], ['ksSpecularEXP', 12],
+      ['ksEmissive', 0, glow ?? [0, 0, 0]], ['ksAlphaRef', cutout ? 0.35 : 0],
+    ],
+  };
+}
+
+// Which texture a mesh's material samples: a prop's own file from the model
+// pack, else the generated texture for its surface.
+export function meshTextureName(meshName: string, textures: TexFile[]): string {
+  const propTex = propTextures as Record<string, string>;
+  return propTex[meshName]
+    ?? textures.find((t) => t.surface === baseSurfaceName(meshName))?.name
+    ?? 'road.png';
+}
+
+function materialBlock(idx: number, name: string, texture: string): string {
+  const { shader, alphaTested, vars } = materialSpec(name);
   const lines = [
     `[MATERIAL_${idx}]`,
     `NAME=${name}`,
-    `SHADER=${cutout ? 'ksPerPixelAT' : 'ksPerPixel'}`,
+    `SHADER=${shader}`,
     'ALPHABLEND=0',
-    `ALPHATEST=${cutout ? 1 : 0}`,
+    `ALPHATEST=${alphaTested ? 1 : 0}`,
     'DEPTHMODE=0',
     `VARCOUNT=${vars.length}`,
   ];
@@ -137,13 +163,7 @@ export function genKsPersistence(
 
   // Props come from the model pack and carry their own texture files, so their
   // materials point at those rather than at a generated surface texture.
-  const propTex = propTextures as Record<string, string>;
-  const mats = built.meshes.map((m) => ({
-    name: `mat_${m.name}`,
-    texture: propTex[m.name]
-      ?? textures.find((t) => t.surface === baseSurfaceName(m.name))?.name
-      ?? 'road.png',
-  }));
+  const mats = built.meshes.map((m) => ({ name: `mat_${m.name}`, texture: meshTextureName(m.name, textures) }));
   const matList = [`[MATERIAL_LIST]`, `COUNT=${mats.length}`].join('\r\n');
   const matBlocks = mats.map((m, i) => materialBlock(i, m.name, m.texture));
 
