@@ -1,6 +1,6 @@
 import type { TrackProject } from '../types';
 import type { CenterlineSample, MeshData, Vec3 } from './types';
-import { perpLeft, leftEdge, rightEdge } from './frames';
+import { perpLeft, leftEdge, rightEdge, frameAtDist } from './frames';
 import { addQuadUp, addQuadToward } from './meshbuilder';
 
 export interface PitSample {
@@ -32,6 +32,20 @@ export function pitZone(project: TrackProject, total: number): PitZone {
   const span = Math.max(1, end - start);
   const taper = Math.min(35, span / 3);
   return { start, end, taper, boxA: start + taper + 4, boxB: end - taper - 4 };
+}
+
+// Where the pit boxes are, as unwrapped zone distances (frameAtDist wraps).
+// The ONE definition: the AC_PIT spawns, the painted boxes and the garages all
+// read it, so a box is painted exactly where its car stops and the garage
+// stands right behind it.
+export function pitBoxDistances(project: TrackProject, total: number): number[] {
+  const n = project.grid.pits;
+  if (!project.pit.enabled || n <= 0) return [];
+  const z = pitZone(project, total);
+  const a = z.boxA + 4;
+  const b = Math.max(a + 1, z.boxB - 4);
+  const span = b - a;
+  return Array.from({ length: n }, (_, i) => (n > 1 ? a + (span * i) / (n - 1) : a + span / 2));
 }
 
 // Unwrapped zone coordinate of a sample distance (0..total).
@@ -86,7 +100,9 @@ export function buildPitLane(
 // AC_PIT boxes live, so track-day/practice spawns feel like a real paddock.
 // Same 1PIT surface (drivable, valid) as the lane it extends.
 // Depth of the garage block, front wall to rear wall.
-export const GARAGE_DEPTH = 7;
+// Depth of the garage block, front wall to rear wall. Must match GARAGE_D in
+// blender/build_pit_complex.py - the building is modelled at this depth.
+export const GARAGE_DEPTH = 10;
 
 export function buildPaddock(
   samples: CenterlineSample[],
@@ -141,12 +157,13 @@ export function buildPaddock(
 // road samples, so they curve with the track.
 export interface PitStructures {
   wall: MeshData; // merged into 1WALL (physical)
-  building: MeshData; // DECOR_PITBLDG (visual)
-  garage: MeshData; // DECOR_GARAGE door quads (visual)
   lines: MeshData; // PIT_LINE painted markings (visual)
   sign: MeshData; // DECOR_PITSIGN speed-limit marker board (visual)
 }
 
+// The pit wall, the painted lines and the speed-limit board. The garages and
+// the paddock are no longer built here: pitComplex.ts places Blender-modelled
+// garage units, transporters and motorhomes, one set per pit box / team.
 export function buildPitStructures(
   samples: CenterlineSample[],
   project: TrackProject,
@@ -154,11 +171,9 @@ export function buildPitStructures(
   totalLength: number,
 ): PitStructures {
   const wall: MeshData = { name: '1WALL', vertices: [], faces: [], uvs: [] };
-  const building: MeshData = { name: 'DECOR_PITBLDG', vertices: [], faces: [] };
-  const garage: MeshData = { name: 'DECOR_GARAGE', vertices: [], faces: [] };
   const lines: MeshData = { name: 'PIT_LINE', vertices: [], faces: [] };
   const signMesh: MeshData = { name: 'DECOR_PITSIGN', vertices: [], faces: [], uvs: [] };
-  const out = { wall, building, garage, lines, sign: signMesh };
+  const out = { wall, lines, sign: signMesh };
   if (!project.pit.enabled || !(project.pit.structures ?? true) || samples.length < 2) return out;
 
   const z = pitZone(project, totalLength);
@@ -199,78 +214,7 @@ export function buildPitStructures(
     addQuadToward(wall.vertices, wall.faces, b2, b2 + 1, b2 + 3, b2 + 2, toLane);
   }
 
-  // --- (2) garage building along the outer edge of lane/paddock ------------
-  // Directly behind the lane, which is where a pit building belongs — the boxes
-  // are on the lane in front of its doors. It used to sit beyond the paddock,
-  // with the boxes parked on the paddock between the two.
-  const off0 = project.pit.width;
-  const DEPTH = GARAGE_DEPTH, H = 5;
-  const emitQuadToward = (m: MeshData, p1: Vec3, p2: Vec3, z0: number, z1: number, dir: Vec3) => {
-    const b = m.vertices.length;
-    m.vertices.push([p1[0], p1[1], z0], [p1[0], p1[1], z1], [p2[0], p2[1], z0], [p2[0], p2[1], z1]);
-    addQuadToward(m.vertices, m.faces, b, b + 1, b + 3, b + 2, dir);
-  };
-  // Garage BAYS. The facade used to be one unbroken wall with dark rectangles
-  // painted on it, so the "garages" were a picture of garages — a car could not
-  // drive into one. Each bay is now an actual opening: the front wall is left
-  // out across the doorway, a lintel spans above it, and side walls run back to
-  // the rear wall, giving a recess deep enough to pull into.
-  const DOOR_W = 5, DOOR_H = 3.4, BAY_STEP = 8;
-  const doors: [number, number][] = [];
-  for (let d = z.boxA + 4; d < z.boxB - 6; d += BAY_STEP) doors.push([d, d + DOOR_W]);
-  const inDoor = (d: number) => doors.some(([a2, b2]) => d >= a2 && d <= b2);
-
-  for (let n = 0; n < idx.length - 1; n++) {
-    const i = idx[n], j = idx[n + 1];
-    if (rel(j) - rel(i) > 6) continue; // wrap seam
-    const [lx, ly] = perpLeft(samples[i].heading);
-    const toLane: Vec3 = [-lx * sign, -ly * sign, 0]; // building front faces the lane
-    const f1 = at(i, off0), f2 = at(j, off0);
-    const doorway = inDoor((rel(i) + rel(j)) / 2);
-    if (doorway) {
-      // opening: only the lintel above it
-      emitQuadToward(building, f1, f2, f1[2] + DOOR_H, f1[2] + H, toLane);
-    } else {
-      emitQuadToward(building, f1, f2, f1[2], f1[2] + H, toLane); // front
-    }
-    const r1 = at(i, off0 + DEPTH), r2 = at(j, off0 + DEPTH);
-    emitQuadToward(building, r1, r2, r1[2], r1[2] + H, [-toLane[0], -toLane[1], 0]); // rear
-    // roof
-    const b = building.vertices.length;
-    building.vertices.push(
-      [f1[0], f1[1], f1[2] + H], [r1[0], r1[1], r1[2] + H],
-      [f2[0], f2[1], f2[2] + H], [r2[0], r2[1], r2[2] + H],
-    );
-    addQuadUp(building.vertices, building.faces, b, b + 1, b + 3, b + 2);
-    // ceiling over a bay, so you don't see daylight through the roof from inside
-    if (doorway) {
-      const cb = building.vertices.length;
-      building.vertices.push(
-        [f1[0], f1[1], f1[2] + DOOR_H], [r1[0], r1[1], r1[2] + DOOR_H],
-        [f2[0], f2[1], f2[2] + DOOR_H], [r2[0], r2[1], r2[2] + DOOR_H],
-      );
-      addQuadUp(building.vertices, building.faces, cb, cb + 1, cb + 3, cb + 2);
-    }
-  }
-
-  // Bay side walls (the dividers between garages) and the door at the back.
-  for (const [da, db] of doors) {
-    const pick = (d: number) => { let hit = idx[0]; for (const i of idx) { if (rel(i) >= d) { hit = i; break; } } return hit; };
-    const i0 = pick(da), i1 = pick(db);
-    if (i0 === i1) continue;
-    const fwd0: Vec3 = [Math.cos(samples[i0].heading), Math.sin(samples[i0].heading), 0];
-    for (const [i, dir] of [[i0, [-fwd0[0], -fwd0[1], 0] as Vec3], [i1, fwd0]] as [number, Vec3][]) {
-      const a = at(i, off0), b2 = at(i, off0 + DEPTH);
-      emitQuadToward(building, a, b2, a[2], a[2] + DOOR_H, dir);
-    }
-    // the roller door itself, at the BACK of the bay rather than on the facade
-    const [lx0, ly0] = perpLeft(samples[i0].heading);
-    const toLane0: Vec3 = [-lx0 * sign, -ly0 * sign, 0];
-    const g1 = at(i0, off0 + DEPTH - 0.08), g2 = at(i1, off0 + DEPTH - 0.08);
-    emitQuadToward(garage, g1, g2, g1[2], g1[2] + DOOR_H, toLane0);
-  }
-
-  // --- (3) painted pit-box lines on the lane --------------------------------
+  // --- (3) painted lines on the lane ---------------------------------------
   const LIFT = 0.014;
   const stripe = (i0: number, i1: number, offA: number, offB: number) => {
     const a0 = at(i0, offA), a1 = at(i0, offB), b0 = at(i1, offA), b1 = at(i1, offB);
@@ -281,18 +225,35 @@ export function buildPitStructures(
     );
     addQuadUp(lines.vertices, lines.faces, b, b + 1, b + 3, b + 2);
   };
-  // continuous line along the lane's outer edge
+  // continuous line along the lane's outer edge, in front of the garages
   for (let n = 0; n < idx.length - 1; n++) {
     if (rel(idx[n + 1]) - rel(idx[n]) > 6) continue; // wrap seam
     stripe(idx[n], idx[n + 1], project.pit.width - 0.35, project.pit.width - 0.15);
   }
-  // transverse box line every 8 m
-  for (let d = z.boxA + 4; d < z.boxB - 2; d += 8) {
-    let i0 = idx[0];
-    for (const i of idx) { if (rel(i) >= d) { i0 = i; break; } }
-    let i1 = i0;
-    for (const i of idx) { if (rel(i) >= d + 0.4) { i1 = i; break; } }
-    if (i1 !== i0) stripe(i0, i1, 0.4, project.pit.width - 0.5);
+  // A BOX painted round every place a car stops. These used to be transverse
+  // bars "0.4 m wide" every 8 m, but each one ran to the NEXT centreline sample
+  // - ~3 m away - so they came out as fat 3 m white slabs, and on a grid of
+  // their own that had nothing to do with where the AC_PIT boxes are. Now each
+  // outline is built from the interpolated frame AT the box, exactly.
+  const BOX_L = 6.0, BOX_W = 3.0, LINE = 0.12;
+  const lane = project.pit.width / 2; // AC_PIT sits on the lane centre
+  for (const d of pitBoxDistances(project, totalLength)) {
+    const f = frameAtDist(samples, d);
+    const fx = Math.cos(f.heading), fy = Math.sin(f.heading);
+    const [lx, ly] = perpLeft(f.heading);
+    const ex = f.pos[0] + lx * (width / 2) * sign, ey = f.pos[1] + ly * (width / 2) * sign;
+    const P = (along: number, out: number): Vec3 =>
+      [ex + fx * along + lx * sign * out, ey + fy * along + ly * sign * out, f.pos[2] + LIFT];
+    const rect = (a0: number, a1: number, o0: number, o1: number) => {
+      const b = lines.vertices.length;
+      lines.vertices.push(P(a0, o0), P(a0, o1), P(a1, o0), P(a1, o1));
+      addQuadUp(lines.vertices, lines.faces, b, b + 1, b + 3, b + 2);
+    };
+    const a0 = -BOX_L / 2, a1 = BOX_L / 2, o0 = lane - BOX_W / 2, o1 = lane + BOX_W / 2;
+    rect(a0, a0 + LINE, o0, o1);            // front bar
+    rect(a1 - LINE, a1, o0, o1);            // back bar
+    rect(a0 + LINE, a1 - LINE, o0, o0 + LINE); // side nearest the track
+    rect(a0 + LINE, a1 - LINE, o1 - LINE, o1); // side nearest the garage
   }
 
   // --- (4) pit SPEED LIMIT line + marker board -----------------------------
@@ -340,11 +301,15 @@ export function buildPitStructures(
     const PW = 1.3, PH = 1.0, Z0 = 1.0; // panel width/height, bottom height
     const panel = (u: number) => [foot[0] + across[0] * u, foot[1] + across[1] * u] as [number, number];
     const pA = panel(-PW / 2), pB = panel(PW / 2);
-    for (const dir of [facing, fwd]) { // both sides, so it is never invisible
+    // both sides, so it is never invisible - and 4 cm apart, because two faces
+    // on one plane facing opposite ways z-fight wherever both are drawn
+    for (const dir of [facing, fwd]) {
+      const t = (dir === fwd ? 0.02 : -0.02);
+      const qa = [pA[0] + fwd[0] * t, pA[1] + fwd[1] * t], qb = [pB[0] + fwd[0] * t, pB[1] + fwd[1] * t];
       const b = signMesh.vertices.length;
       signMesh.vertices.push(
-        [pA[0], pA[1], foot[2] + Z0], [pA[0], pA[1], foot[2] + Z0 + PH],
-        [pB[0], pB[1], foot[2] + Z0], [pB[0], pB[1], foot[2] + Z0 + PH],
+        [qa[0], qa[1], foot[2] + Z0], [qa[0], qa[1], foot[2] + Z0 + PH],
+        [qb[0], qb[1], foot[2] + Z0], [qb[0], qb[1], foot[2] + Z0 + PH],
       );
       signMesh.uvs!.push([0, 0], [0, 1], [1, 0], [1, 1]);
       addQuadToward(signMesh.vertices, signMesh.faces, b, b + 1, b + 3, b + 2, dir);

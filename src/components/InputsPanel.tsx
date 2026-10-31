@@ -14,7 +14,7 @@ const KERBS: KerbType[] = ['none', 'flat', 'serrated', 'ripple', 'sausage', 'tal
 export function InputsPanel({ project, built, onChange }: Props) {
   const total = Math.max(1, Math.round(built.totalLength));
   // Measured off the BUILT profile, so it reflects smoothing as you drag it.
-  const gradePct = maxGradientPct(built.centerline.map((c) => c.pos[2]), built.totalLength);
+  const gradePct = maxGradientPct(built.centerline.map((c) => c.pos[2]), built.centerline.map((c) => c.dist));
   const [elevDist, setElevDist] = useState(0);
   const [elevHeight, setElevHeight] = useState(0);
 

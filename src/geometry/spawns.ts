@@ -1,14 +1,10 @@
 import type { TrackProject } from '../types';
 import type { CenterlineSample, EmptyData, Vec3 } from './types';
-import { pitZone } from './pitlane';
+import { pitBoxDistances } from './pitlane';
+import { frameAtDist, type Frame } from './frames';
 
 const HEIGHT_ABOVE = 1.0; // m above the surface
 
-interface Frame {
-  pos: Vec3;
-  tangent: Vec3; // unit, direction of travel (incl. slope)
-  heading: number; // rad, XY yaw
-}
 
 function normalize(v: Vec3): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
@@ -19,33 +15,6 @@ function cross(a: Vec3, b: Vec3): Vec3 {
   return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
-// Interpolate position + travel tangent at a distance along the centerline.
-function frameAtDist(samples: CenterlineSample[], dist: number): Frame {
-  const total = samples[samples.length - 1].dist;
-  // WRAP instead of clamping: a pit zone crossing the S/F line produces box
-  // distances beyond `total`, which belong at the start of the lap.
-  const d = total > 0 ? ((dist % total) + total) % total : 0;
-
-  let i = 0;
-  while (i < samples.length - 1 && samples[i + 1].dist < d) i++;
-  const a = samples[i];
-  const b = samples[Math.min(i + 1, samples.length - 1)];
-
-  const span = b.dist - a.dist;
-  const f = span > 0 ? (d - a.dist) / span : 0;
-  const pos: Vec3 = [
-    a.pos[0] + (b.pos[0] - a.pos[0]) * f,
-    a.pos[1] + (b.pos[1] - a.pos[1]) * f,
-    a.pos[2] + (b.pos[2] - a.pos[2]) * f,
-  ];
-
-  let tangent: Vec3 = [b.pos[0] - a.pos[0], b.pos[1] - a.pos[1], b.pos[2] - a.pos[2]];
-  if (Math.hypot(tangent[0], tangent[1], tangent[2]) < 1e-6) {
-    tangent = [Math.cos(a.heading), Math.sin(a.heading), 0];
-  }
-  tangent = normalize(tangent);
-  return { pos, tangent, heading: Math.atan2(tangent[1], tangent[0]) };
-}
 
 // Build a spawn/timing empty. [CORRECTNESS] local +Z = travel direction,
 // local +Y = up, scale = 1. Cars spawn upright and facing forward.
@@ -117,20 +86,15 @@ export function buildEmpties(
   if (project.pit.enabled) {
     const sign = project.pit.side === 'left' ? 1 : -1;
     const total = samples[samples.length - 1].dist;
-    const z = pitZone(project, total);
-    const a = z.boxA + 4;
-    const b = Math.max(a + 1, z.boxB - 4);
-    const span = b - a;
     // Boxes ALWAYS sit on the lane, in front of the garage doors. With a paddock
     // they used to be parked out on the paddock in rows, several metres clear of
     // the lane — track-day style, but not how a circuit works, and AC wants a
     // box it can drive to along the pit lane. The paddock is a yard behind the
     // building now and has nothing to do with where a car stops.
     const lateral = sign * (w / 2 + project.pit.width * 0.5);
-    for (let i = 0; i < pits; i++) {
-      const dist = pits > 1 ? a + (span * i) / (pits - 1) : a + span / 2;
+    pitBoxDistances(project, total).forEach((dist, i) => {
       out.push(makeEmpty(`AC_PIT_${i}`, frameAtDist(samples, dist), lateral));
-    }
+    });
   } else {
     const startRows = Math.max(1, Math.ceil(starts / 2));
     const pitBase = sf - 8 - startRows * 9 - 6;

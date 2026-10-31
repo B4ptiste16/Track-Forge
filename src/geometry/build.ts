@@ -1,7 +1,7 @@
 import type { TrackProject, StripCfg, RunoffType } from '../types';
 import type { BuiltTrack, MeshData } from './types';
 import { buildCenterline, computeClosure, insertSamples } from './centerline';
-import { makeHeightFn, smoothHeights } from './elevation';
+import { makeHeightFn, smoothProfile } from './elevation';
 
 // Every metre of track gets SOME run-off and a barrier behind it — a stretch
 // with neither is just a place to fall off the world.
@@ -12,6 +12,7 @@ import { buildRoad } from './road';
 import { buildRoadLines } from './lines';
 import { computeKerbInfo, buildKerbs, KERB_PATTERNS, kerbTaperBreaks } from './kerbs';
 import { computePitInfo, buildPitLane, buildPaddock, buildPitStructures, pitZone, pitRel, GARAGE_DEPTH } from './pitlane';
+import { buildPitComplex } from './pitComplex';
 import { buildBuildings } from './buildings';
 import { autoAdverts, buildProps } from './props';
 import { buildPatches } from './patches';
@@ -49,7 +50,6 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const { samples, spans, totalLength } = buildCenterline(segsClamped);
 
   const overlaps = detectOverlaps(samples);
-  const manualH = makeHeightFn(project.elevation);
   const bridgeH = makeBridgeHeightFn(overlaps, project.bridge, project.road.width);
   // Smooth the HAND-SET profile only. Bridge ramps are deliberate shapes with a
   // clearance to hit, so they are added after smoothing and left alone.
@@ -57,8 +57,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // before any height is applied — and the smoother needs it to decide whether
   // to wrap its window across the start/finish line.
   const closure = computeClosure(samples);
-  const rawH = samples.map((s) => manualH(s.dist));
-  const smoothH = smoothHeights(rawH, totalLength, project.elevationSmoothing ?? 0, closure.closed);
+  const manualH = makeHeightFn(project.elevation, totalLength, closure.closed);
+  const smoothH = smoothProfile(samples.map((s) => s.dist), totalLength, manualH,
+    project.elevationSmoothing ?? 0, closure.closed);
   for (let i = 0; i < samples.length; i++) {
     samples[i].pos[2] = smoothH[i] + bridgeH(samples[i].dist);
   }
@@ -237,6 +238,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   // Pit structures: wall between track and pit lane, garage building along the
   // paddock, painted pit-box lines on the lane.
   const pitDeco = buildPitStructures(samples, project, width, totalLength);
+  // garages, transporters and motorhomes: one garage per box, a truck and a
+  // motorhome per team, modelled in Blender
+  const pitComplex = buildPitComplex(samples, project, width);
 
   const runoffMeshes = buildRunoff(samples, width, resolved, innerOffsets, curvCap, overlapCap, project.walls, closure.closed, project.wallGaps, esc.corridors,
     project.surfaceDetail ?? { grassHeight: 0, gravelDepth: 0 }, project.decor?.adverts ?? false);
@@ -354,7 +358,9 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const patchMeshes = buildPatches(project.patches ?? [], samples);
   // Grass that stands up out of the verge (alpha-cut cards) — the thing a flat
   // ground texture fundamentally cannot do.
-  const tufts = buildGrassTufts(samples, width, resolved, project.decor?.grassTufts ?? 0);
+  // no grass on the pit lane, in the garages or across the paddock
+  const tufts = buildGrassTufts(samples, width, resolved, project.decor?.grassTufts ?? 0, (i, side) =>
+    pitComplexOuter(i, side) > pitInfo[i][side] ? Infinity : innerOffsets[i][side]);
 
   // Draw/export order: aprons first, then road/pit/lines/kerbs, walls, decor.
   for (const pm of patchMeshes) {
@@ -380,7 +386,7 @@ export function buildTrack(project: TrackProject): BuiltTrack {
   const wallMesh = runoffMeshes.filter((m) => m.name === '1WALL');
   const meshes: MeshData[] = [
     ...aprons, road, pit, lines, pitDeco.lines, kerb.base, kerb.hi, ...wallMesh,
-    esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.building, pitDeco.garage, pitDeco.sign, ...bldgs, ...propMeshes,
+    esc.poly, esc.bollards, ...(tufts ? [tufts] : []), ...decor.meshes, pitDeco.sign, ...pitComplex, ...bldgs, ...propMeshes,
   ].filter((m) => m.faces.length > 0);
 
   // RENDER STACK. Levelling every surface to the road plane fixed the steps you

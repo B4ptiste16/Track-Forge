@@ -20,6 +20,9 @@ export function buildGrassTufts(
   width: number,
   resolved: ResolvedSample[],
   density: number,
+  // where the verge starts beyond the road edge (past a kerb or the pit lane);
+  // Infinity where there is no verge to grow on (the pit complex)
+  innerAt: (i: number, side: 'left' | 'right') => number = () => 0,
 ): MeshData | null {
   if (density <= 0 || samples.length < 4) return null;
   const mesh: MeshData = { name: TUFT_MESH, vertices: [], faces: [], uvs: [] };
@@ -47,14 +50,17 @@ export function buildGrassTufts(
       // Only where the verge is actually grass — no tufts in a gravel trap or
       // on paved run-off.
       if (r.surface !== '1GRASS') continue;
+      const inner = innerAt(i, side);
+      if (!Number.isFinite(inner)) continue;
       const band = Math.min(r.width, 14); // beyond ~14 m you cannot tell anyway
       if (band < 1.5) continue;
       const sgn = side === 'left' ? 1 : -1;
 
       const perRow = 1 + Math.round(3 * Math.min(1, density));
       for (let k = 0; k < perRow; k++) {
-        // sit clear of the track edge so tufts never poke through the tarmac
-        const off = half + 0.8 + rnd() * (band - 1.0);
+        // sit clear of the track edge (and any kerb or pit lane beside it) so
+        // tufts never poke through the tarmac
+        const off = half + inner + 0.8 + rnd() * (band - 1.0);
         const jitter = (rnd() - 0.5) * step;
         const x = s.pos[0] + lx * off * sgn + Math.cos(s.heading) * jitter;
         const y = s.pos[1] + ly * off * sgn + Math.sin(s.heading) * jitter;

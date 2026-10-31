@@ -46,7 +46,14 @@ export function meshColor(name: string, pal: Palette): string {
   if (name === 'DECOR_BLDGLASS') return '#7d95a8';
   if (name === 'DECOR_BLDBRICK') return '#9a6a52';
   if (name === 'DECOR_BLDHANGAR') return '#aab0b6';
-  if (name === 'DECOR_PITBLDG') return '#8e8b84';
+  if (name === 'DECOR_PITBLDG') return '#e2e4e7'; // composite cladding
+  if (name === 'DECOR_PITGLASS') return '#2a3a48';
+  if (name === 'DECOR_PITFLOOR') return '#a8acb1';
+  if (name === 'DECOR_PITINT') return '#eceef0';
+  if (name === 'DECOR_CHASSIS') return '#18191c';
+  if (name.startsWith('DECOR_TEAM')) {
+    return ['#6a4ff8', '#12285e', '#c8102e', '#ff7a1a', '#00a19a', '#1f6f3c', '#16171b', '#3fa2ff'][Number(name.slice(10)) - 1] ?? '#808080';
+  }
   if (name === 'DECOR_GARAGE') return '#23252a';
   if (name === '1WALLPOLY') return '#e8d24a';
   if (name === 'DECOR_BOLLARD') return '#ff7a1a';

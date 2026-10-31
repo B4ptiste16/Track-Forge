@@ -4,6 +4,7 @@ import { meshColor, type Palette } from '../state/project';
 import { ADVERT_ASPECT } from '../geometry/runoff';
 import { KERB_PATTERNS } from '../geometry/kerbs';
 import { SEAT_PATTERNS, TREE_ATLAS, LIGHTS_ASPECT } from '../geometry/decor';
+import { TEAM_ASPECT } from '../geometry/pitComplex';
 
 export interface TexFile {
   path: string; // e.g. texture/road.png (the subfolder KsEditor searches)
@@ -266,6 +267,19 @@ function tyreMarks(ctx: CanvasRenderingContext2D, cars: number, alpha: number): 
     }
   }
 }
+
+// Paddock team liveries. Invented names on purpose: real team names and
+// marks cannot go into an app that is sold.
+const TEAM_LIVERIES = [
+  { name: 'BAPTOU RACING', main: '#6a4ff8', accent: '#ffffff', dark: '#1a1440', text: '#ffffff' },
+  { name: 'NORDHAVN GP', main: '#12285e', accent: '#f2c230', dark: '#0a1633', text: '#f2c230' },
+  { name: 'VERMILION', main: '#c8102e', accent: '#ffffff', dark: '#5e0814', text: '#ffffff' },
+  { name: 'HELIX MOTORSPORT', main: '#ff7a1a', accent: '#121212', dark: '#121212', text: '#121212' },
+  { name: 'TIDEWATER GP', main: '#00a19a', accent: '#ffffff', dark: '#00504c', text: '#ffffff' },
+  { name: 'GLENRIDGE RACING', main: '#1f6f3c', accent: '#b4e040', dark: '#0d3a1e', text: '#ffffff' },
+  { name: 'OBSIDIAN', main: '#16171b', accent: '#d4a73a', dark: '#000000', text: '#d4a73a' },
+  { name: 'AURORA GP', main: '#3fa2ff', accent: '#ff4fa3', dark: '#173f73', text: '#ffffff' },
+];
 
 export function drawTexture(surface: string, hex: string, theme: Theme, wallStyle: WallStyle): string {
   const c = document.createElement('canvas');
@@ -974,56 +988,142 @@ export function drawTexture(surface: string, hex: string, theme: Theme, wallStyl
       speckle(ctx, dens(240), [0.4, 1.5], 0.1, true);       // dust and grit
       break;
     }
+    // ---- F1 PIT COMPLEX -----------------------------------------------------
+    // All world-mapped by pitComplex.ts (one tile per 4 m unless noted), so
+    // each is drawn at real size and tiles seamlessly.
     case 'DECOR_PITBLDG': {
-      // The pit complex is mapped planar at one tile per 6 m, so this is ONE
-      // storey: a glazed team-viewing band over a clad lower wall, with the
-      // structural bay columns standing proud of both. It used to be flat grey
-      // with lines ruled down it, which is what a building looks like before
-      // anyone decides what it is made of.
-      const clad: RGB = [142, 139, 132];
-      vgrad(ctx, 0, SIZE, [
-        [0, shade(clad, 1.16)], [0.22, shade(clad, 1.02)],
-        [0.74, shade(clad, 0.92)], [1, shade(clad, 0.7)],
-      ]);
+      // aluminium composite cladding: 1.33 m x 1 m panels, recessed joints
+      const base: RGB = [226, 228, 231];
+      ctx.fillStyle = shade(base, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const pw = SIZE / 3, ph = SIZE / 4;
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 3; c++) {
+          ctx.fillStyle = shade(base, 0.965 + Math.random() * 0.05);
+          ctx.fillRect(c * pw + px(1.5), r * ph + px(1.5), pw - px(3), ph - px(3));
+          for (let k = 0; k < 4; k++) {                    // a little weathering per panel
+            const x = c * pw + Math.random() * pw;
+            const g = ctx.createLinearGradient(0, r * ph, 0, r * ph + ph * 0.75);
+            g.addColorStop(0, 'rgba(70,70,70,0.07)'); g.addColorStop(1, 'rgba(70,70,70,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(x, r * ph + px(2), px(1) + Math.random() * px(3), ph * 0.75);
+          }
+        }
+      }
+      grain(ctx, 3);
+      for (let r = 0; r <= 4; r++) {
+        ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.fillRect(0, r * ph - px(1.2), SIZE, px(1.5));
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(0, r * ph + px(0.4), SIZE, px(1));
+      }
+      for (let c = 0; c <= 3; c++) {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(c * pw - px(1.2), 0, px(1.5), SIZE);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(c * pw + px(0.4), 0, px(1), SIZE);
+      }
+      break;
+    }
+    case 'DECOR_PITGLASS': {
+      // structural glazing: 1.33 m x 2 m panes, each with its own sky
+      const pw = SIZE / 3, ph = SIZE / 2;
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) {
+          const t = 0.85 + Math.random() * 0.3;
+          const g = ctx.createLinearGradient(c * pw, r * ph, c * pw + pw * 0.6, r * ph + ph);
+          g.addColorStop(0, `rgb(${Math.round(98 * t)},${Math.round(124 * t)},${Math.round(146 * t)})`);
+          g.addColorStop(0.45, `rgb(${Math.round(46 * t)},${Math.round(62 * t)},${Math.round(78 * t)})`);
+          g.addColorStop(1, `rgb(${Math.round(24 * t)},${Math.round(32 * t)},${Math.round(42 * t)})`);
+          ctx.fillStyle = g;
+          ctx.fillRect(c * pw, r * ph, pw, ph);
+          const rg = ctx.createLinearGradient(c * pw, r * ph, c * pw + pw, r * ph + ph);
+          rg.addColorStop(0.28, 'rgba(255,255,255,0)'); rg.addColorStop(0.4, 'rgba(255,255,255,0.13)');
+          rg.addColorStop(0.5, 'rgba(255,255,255,0)');
+          ctx.fillStyle = rg;
+          ctx.fillRect(c * pw, r * ph, pw, ph);
+        }
+      }
+      ctx.fillStyle = '#2a2f36';
+      for (let c = 0; c <= 3; c++) ctx.fillRect(c * pw - px(2), 0, px(4), SIZE);
+      for (let r = 0; r <= 2; r++) ctx.fillRect(0, r * ph - px(1.5), SIZE, px(3));
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      for (let c = 0; c <= 3; c++) ctx.fillRect(c * pw - px(2), 0, px(1), SIZE);
+      break;
+    }
+    case 'DECOR_PITFLOOR': {
+      // resin garage floor: pale, faintly mottled, anti-slip fleck, tyre scuffs
+      const base: RGB = [170, 174, 179];
+      ctx.fillStyle = shade(base, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      for (let i = 0; i < dens(5); i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE, r = px(30 + Math.random() * 50);
+        const k = 0.93 + Math.random() * 0.1;
+        wrap(x, y, r, (wx, wy) => {
+          const g = ctx.createRadialGradient(wx, wy, 1, wx, wy, r);
+          g.addColorStop(0, shade(base, k, 0.5)); g.addColorStop(1, shade(base, k, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(wx, wy, r, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      speckle(ctx, dens(420), [px(0.3), px(0.8)], 0.09, true);
+      speckle(ctx, dens(260), [px(0.3), px(0.7)], 0.07, false);
+      rubberScuff(ctx, dens(6), SIZE * 0.5, SIZE * 0.9);
+      break;
+    }
+    case 'DECOR_PITINT': {
+      // garage interior: white wall panels, 1.33 m x 2 m
+      const base: RGB = [236, 238, 240];
+      ctx.fillStyle = shade(base, 1);
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      grain(ctx, 2);
+      const pw = SIZE / 3, ph = SIZE / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      for (let c = 0; c <= 3; c++) ctx.fillRect(c * pw - px(0.8), 0, px(1.2), SIZE);
+      for (let r = 0; r <= 2; r++) ctx.fillRect(0, r * ph - px(0.8), SIZE, px(1.2));
+      rubberScuff(ctx, dens(3), SIZE * 0.5, SIZE * 0.9);
+      break;
+    }
+    case 'DECOR_CHASSIS': {
+      // tyres, truck chassis, tyre racks - near-black, two tiles a metre
+      ctx.fillStyle = '#18191c';
+      ctx.fillRect(0, 0, SIZE, SIZE);
       grain(ctx, 5);
-      // glazing band — the viewing gallery above the garages
-      const gy0 = SIZE * 0.1, gy1 = SIZE * 0.4;
-      vgrad(ctx, gy0, gy1, [
-        [0, '#53657a'], [0.45, '#7f9bb2'], [0.75, '#44586b'], [1, '#33424f'],
-      ]);
-      ao(ctx, 0, gy0, SIZE, px(8), 'down', 0.5);          // reveal above the glass
-      ao(ctx, 0, gy1 - px(8), SIZE, px(8), 'up', 0.45);    // sill shadow
-      ctx.fillStyle = 'rgba(255,255,255,0.3)';             // sill
-      ctx.fillRect(0, gy1, SIZE, px(3));
-      for (let x = px(14); x < SIZE; x += px(28)) {        // window mullions
-        ctx.fillStyle = 'rgba(28,32,38,0.75)';
-        ctx.fillRect(x, gy0, px(3), gy1 - gy0);
-      }
-      for (let x = 0; x < SIZE; x += px(21)) {             // glass reflections
-        const g = ctx.createLinearGradient(x, gy0, x + px(21), gy1);
-        g.addColorStop(0, 'rgba(255,255,255,0.14)');
-        g.addColorStop(0.5, 'rgba(255,255,255,0.02)');
-        g.addColorStop(1, 'rgba(255,255,255,0.1)');
-        ctx.fillStyle = g;
-        ctx.fillRect(x, gy0, px(21), gy1 - gy0);
-      }
-      // structural columns between the bays, standing proud of the cladding
-      for (let x = 0; x < SIZE; x += px(64)) {
-        ctx.fillStyle = shade(clad, 1.1);
-        ctx.fillRect(x, 0, px(13), SIZE);
-        ao(ctx, x + px(13), 0, px(9), SIZE, 'right', 0.45);
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.fillRect(x, 0, px(2), SIZE);
-      }
-      ctx.fillStyle = 'rgba(248,249,250,0.9)';             // fascia at the roofline
-      ctx.fillRect(0, 0, SIZE, px(13));
-      ao(ctx, 0, px(13), SIZE, px(10), 'down', 0.4);
-      for (let x = 0; x < SIZE; x += px(21)) {             // cladding panel joints
-        ctx.fillStyle = 'rgba(0,0,0,0.14)';
-        ctx.fillRect(x, gy1 + px(4), px(1.5), SIZE - gy1);
-      }
-      streaks(ctx, dens(20), gy1, SIZE * 0.5, 0.1);        // rain off the sill
-      groundGrime(ctx, 0.14, 0.4);
+      speckle(ctx, dens(200), [0.4, 1.4], 0.06, true);
+      break;
+    }
+    case 'DECOR_TEAM1': case 'DECOR_TEAM2': case 'DECOR_TEAM3': case 'DECOR_TEAM4':
+    case 'DECOR_TEAM5': case 'DECOR_TEAM6': case 'DECOR_TEAM7': case 'DECOR_TEAM8': {
+      // A team livery. pitComplex maps it so a face TEAM_ASPECT times longer
+      // than it is tall shows one tile, so X is drawn compressed by that much
+      // and lettering keeps its proper shape once it is stretched along a face.
+      const t = TEAM_LIVERIES[Number(surface.slice('DECOR_TEAM'.length)) - 1] ?? TEAM_LIVERIES[0];
+      ctx.fillStyle = t.main;
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      vgrad(ctx, 0, SIZE, [[0, 'rgba(255,255,255,0.1)'], [1, 'rgba(0,0,0,0.2)']]);
+      ctx.fillStyle = t.accent;
+      ctx.fillRect(0, 0, SIZE, SIZE * 0.12);                 // accent stripe along the top
+      ctx.fillStyle = t.dark;
+      ctx.fillRect(0, SIZE * 0.9, SIZE, SIZE * 0.1);         // dark band along the foot
+      ctx.fillStyle = t.accent;                              // the swoosh
+      ctx.beginPath();
+      ctx.moveTo(SIZE * 0.80, SIZE * 0.12); ctx.lineTo(SIZE * 0.88, SIZE * 0.12);
+      ctx.lineTo(SIZE * 0.80, SIZE * 0.9); ctx.lineTo(SIZE * 0.72, SIZE * 0.9);
+      ctx.fill();
+      ctx.fillStyle = t.dark;
+      ctx.beginPath();
+      ctx.moveTo(SIZE * 0.90, SIZE * 0.12); ctx.lineTo(SIZE * 0.93, SIZE * 0.12);
+      ctx.lineTo(SIZE * 0.85, SIZE * 0.9); ctx.lineTo(SIZE * 0.82, SIZE * 0.9);
+      ctx.fill();
+      ctx.save();
+      ctx.fillStyle = t.text;
+      let F = SIZE * 0.44;
+      ctx.font = `bold ${Math.round(F)}px Arial, Helvetica, sans-serif`;
+      const maxW = SIZE * 0.62 * TEAM_ASPECT;
+      const w = ctx.measureText(t.name).width;
+      if (w > maxW) { F *= maxW / w; ctx.font = `bold ${Math.round(F)}px Arial, Helvetica, sans-serif`; }
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.translate(SIZE * 0.37, SIZE * 0.52);
+      ctx.scale(1 / TEAM_ASPECT, 1);
+      ctx.fillText(t.name, 0, 0);
+      ctx.restore();
       break;
     }
     case 'DECOR_GARAGE': {
